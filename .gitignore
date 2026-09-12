@@ -3,12 +3,18 @@ SplatWalk/cert.pem
 SplatWalk/key.pem
 
 # --- Splat data ---
-# Training PLYs run to hundreds of MB. GitHub rejects any file over 100 MB and a
-# repo is not a CDN. Host big scenes as GitHub Release assets instead and load
-# them by URL from inside SplatWalk (Release assets allow 2 GB and send CORS
-# headers, and they do not count against the repository size).
+# Training PLYs run to hundreds of MB and change on every retrain, so the folder
+# is ignored by default. Prepared scenes you want reachable from the Pages site
+# are the exception and are whitelisted one by one below.
+#
+# They have to be committed rather than attached to a Release: Release assets are
+# NOT CORS-enabled (no access-control-allow-origin, and OPTIONS returns 405), so
+# a browser on kumodot.github.io cannot fetch one. A committed file is served by
+# Pages from the same origin as the app, so no CORS is involved at all.
+# Keep each one under 100 MB, which is GitHub's hard per-file limit.
 SplatWalk/splats/*
 !SplatWalk/splats/README.md
+!SplatWalk/splats/splat_quest.ply
 
 # --- Spirula Studio ---
 # A 119 MB third-party GPL binary. Too big for GitHub and not ours to

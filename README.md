@@ -51,11 +51,21 @@ SplatForge/       the PyQt6 pipeline app
 archive/          older versions, kept out of the way
 ```
 
-## Big splat files
+## A demo scene, and your own
 
-They do not belong in the repository. Publish a prepared scene as a **Release
-asset** (2 GB per file, CORS enabled, does not count against the repo size) and
-load it in SplatWalk by URL. See [SplatWalk/splats/README.md](SplatWalk/splats/README.md).
+The site ships one prepared room, loadable straight from the app by URL:
+
+```
+splats/splat_quest.ply
+```
+
+497K splats, 32 MB, made from a 159 MB training PLY with `splat_prep`.
+
+Your own raw splats stay out of the repository. To publish one, shrink it with
+`splat_prep`, commit it, and whitelist it in `.gitignore`. It has to be committed
+rather than attached to a Release: **Release assets are not CORS-enabled**, so a
+browser on the Pages site cannot fetch one. See
+[SplatWalk/splats/README.md](SplatWalk/splats/README.md).
 
 ## Licence
 
