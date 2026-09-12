@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SplatWalk v0.1.0</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
+    --muted: #8a92a6; --accent: #5ee0c1; --accent2: #f7b955; --danger: #ff6b6b; --sel: #1f3a35;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  canvas { display: block; touch-action: none; }
+  #ui { position: fixed; top: 0; left: 0; bottom: 0; width: 340px; max-width: 100vw; background: var(--panel);
+    border-right: 1px solid var(--line); display: flex; flex-direction: column; z-index: 10; backdrop-filter: blur(6px); }
+  #ui.collapsed { transform: translateX(-100%); }
+  #toggleUi { position: fixed; top: 10px; left: 350px; z-index: 11; }
+  #ui.collapsed ~ #toggleUi { left: 10px; }
+  header { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: 0.5px; }
+  header .ver { color: var(--accent); font-weight: 600; font-size: 12px; }
+  header .spacer { flex: 1; }
+  section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  section h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 8px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .row.tight { margin-bottom: 0; }
+  button, select, input[type=text], input[type=number], input[type=url] {
+    background: #171a21; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #062; border-color: var(--accent); font-weight: 700; }
+  button.primary:disabled { opacity: 0.4; cursor: default; }
+  button.warn { color: var(--danger); }
+  button.small { padding: 3px 7px; font-size: 12px; }
+  select { flex: 1; min-width: 0; }
+  input[type=number] { width: 62px; padding: 4px 5px; }
+  input[type=text], input[type=url] { flex: 1; min-width: 0; }
+  #items { flex: 1; overflow: auto; padding: 8px 10px; }
+  .item { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: #13161c; }
+  .item.selected { border-color: var(--accent); background: var(--sel); }
+  .item .title { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; cursor: pointer; }
+  .item .title .name { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .meta { color: var(--muted); font-size: 11px; }
+  .item .status { font-size: 11px; color: var(--accent2); }
+  .item .status.error, .item .status.missing { color: var(--danger); }
+  .item .grid { display: grid; grid-template-columns: 34px 1fr 1fr 1fr; gap: 4px 6px; align-items: center; }
+  .item .grid label { color: var(--muted); font-size: 11px; }
+  .item .grid input { width: 100%; }
+  .item .actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  #status { padding: 8px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); min-height: 34px; }
+  #status.busy { color: var(--accent2); }
+  .hint { color: var(--muted); font-size: 11px; }
+  .empty { color: var(--muted); text-align: center; padding: 30px 10px; }
+  a { color: var(--accent); }
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 50; }
+  #modal.open { display: flex; }
+  #modal .box { background: #151820; border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; max-width: 420px; width: calc(100vw - 32px); }
+  #modal h3 { margin: 0 0 8px; }
+  #modal p { margin: 6px 0; }
+  #vrHint { position: fixed; right: 12px; bottom: 12px; color: var(--muted); font-size: 11px; z-index: 5; text-align: right; }
+  #dropOverlay { position: fixed; inset: 0; background: rgba(94,224,193,0.12); border: 3px dashed var(--accent); display: none;
+    align-items: center; justify-content: center; font-size: 24px; z-index: 40; pointer-events: none; }
+  #dropOverlay.on { display: flex; }
+  @media (max-width: 600px) { #ui { width: 100vw; } #toggleUi { left: auto; right: 10px; } #ui.collapsed ~ #toggleUi { left: auto; right: 10px; } }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <header>
+    <h1>SplatWalk</h1><span class="ver" id="verLabel">v0.1.0</span>
+    <span class="spacer"></span>
+    <button class="small" id="aboutBtn">About</button>
+  </header>
+
+  <section>
+    <div class="row">
+      <button class="primary" id="enterVrBtn" disabled>Checking VR...</button>
+      <button id="addFilesBtn">+ Add files</button>
+      <input type="file" id="fileInput" multiple accept=".ply,.spz,.splat,.ksplat,.sog,.zip,.rad" style="display:none">
+    </div>
+    <div class="row tight">
+      <input type="url" id="urlInput" placeholder="URL or splats/scene.spz">
+      <button id="addUrlBtn">Add URL</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Project</h2>
+    <div class="row">
+      <select id="projectSelect"></select>
+      <button class="small" id="newProjectBtn" title="New empty project">New</button>
+      <button class="small" id="saveAsBtn" title="Save current project under a new name">Save as</button>
+      <button class="small warn" id="deleteProjectBtn" title="Delete this project">Del</button>
+    </div>
+    <div class="row tight">
+      <button class="small" id="exportBtn">Export JSON</button>
+      <button class="small" id="importBtn">Import JSON</button>
+      <input type="file" id="importInput" accept=".json" style="display:none">
+      <button class="small" id="saveViewBtn" title="Store current viewer position as the project start point">Set start point</button>
+      <span class="hint" id="autosaveHint">autosave on</span>
+    </div>
+  </section>
+
+  <div id="items"><div class="empty">No splats yet.<br>Add PLY / SPZ files or drop them here.</div></div>
+
+  <section>
+    <h2>Settings</h2>
+    <div class="row">
+      <label><input type="checkbox" id="setLod" checked> Build LOD on load (recommended for Quest)</label>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="setFlip" checked> Flip new splats (rotate X 180, most PLYs are Y-down)</label>
+    </div>
+    <div class="row">
+      <label>VR resolution</label>
+      <select id="setFbScale" style="flex:0 0 auto">
+        <option value="0.5">0.5x (fastest)</option>
+        <option value="0.75" selected>0.75x</option>
+        <option value="1">1.0x (sharpest)</option>
+      </select>
+      <label>Move speed</label>
+      <input type="number" id="setSpeed" value="1.5" min="0.1" step="0.1">
+    </div>
+    <div class="row tight">
+      <button class="small warn" id="wipeBtn" title="Delete every stored project and splat from this browser">Wipe storage</button>
+    </div>
+  </section>
+
+  <div id="status">Ready.</div>
+</div>
+<button id="toggleUi" class="small">Hide panel</button>
+
+<div id="vrHint">Desktop: drag to look, WASD move, Q/E down/up, Shift fast<br>VR: left stick move, right stick snap turn / up-down, grip grab, both grips scale, B next splat, Y HUD, X home</div>
+<div id="dropOverlay">Drop splat files</div>
+
+<div id="modal">
+  <div class="box">
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.1.0</span></h3>
+    <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
+    <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
+    <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
+    <p class="hint">Built with three.js and Spark (sparkjs.dev). Projects and splat data live in this browser's IndexedDB; use Export JSON to move a layout elsewhere.</p>
+    <div class="row" style="justify-content:flex-end; margin-top:12px"><button id="closeModal">Close</button></div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/addons/",
+    "@sparkjsdev/spark": "./vendor/spark.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
+
+// ---------------------------------------------------------------------------
+// App constants
+// ---------------------------------------------------------------------------
+const APP_NAME = "SplatWalk";
+const APP_VERSION = "0.1.0";
+const DB_NAME = "splatwalk";
+const LS_CURRENT = "splatwalk.currentProject";
+const LS_SETTINGS = "splatwalk.settings";
+const EYE_HEIGHT = 1.6;           // desktop camera height, meters
+const SNAP_TURN_DEG = 30;
+
+document.getElementById("verLabel").textContent = "v" + APP_VERSION;
+document.getElementById("verLabel2").textContent = "v" + APP_VERSION;
+document.title = `${APP_NAME} v${APP_VERSION}`;
+
+// ---------------------------------------------------------------------------
+// Settings (persisted in localStorage)
+// ---------------------------------------------------------------------------
+const settings = Object.assign(
+  { lod: true, flip: true, fbScale: 0.75, moveSpeed: 1.5 },
+  safeJson(localStorage.getItem(LS_SETTINGS)) || {}
+);
+function saveSettings() { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); } catch {} }
+function safeJson(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
+
+// ---------------------------------------------------------------------------
+// IndexedDB helpers: "blobs" (splat file bytes) and "projects" (layout JSON)
+// ---------------------------------------------------------------------------
+const dbp = new Promise((res, rej) => {
+  const r = indexedDB.open(DB_NAME, 1);
+  r.onupgradeneeded = () => {
+    const db = r.result;
+    if (!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs");
+    if (!db.objectStoreNames.contains("projects")) db.createObjectStore("projects");
+  };
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+async function idbPut(store, key, val) {
+  const db = await dbp;
+  return new Promise((res, rej) => {
+    const t = db.transaction(store, "readwrite");
+    t.objectStore(store).put(val, key);
+    t.oncomplete = () => res(); t.onerror = () => rej(t.error);
+  });
+}
+async function idbGet(store, key) {
+  const db = await dbp;
+  return new Promise((res, rej) => {
+    const q = db.transaction(store, "readonly").objectStore(store).get(key);
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  });
+}
+async function idbDel(store, key) {
+  const db = await dbp;
+  return new Promise((res, rej) => {
+    const t = db.transaction(store, "readwrite");
+    t.objectStore(store).delete(key);
+    t.oncomplete = () => res(); t.onerror = () => rej(t.error);
+  });
+}
+async function idbKeys(store) {
+  const db = await dbp;
+  return new Promise((res, rej) => {
+    const q = db.transaction(store, "readonly").objectStore(store).getAllKeys();
+    q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+  });
+}
+async function idbClear(store) {
+  const db = await dbp;
+  return new Promise((res, rej) => {
+    const t = db.transaction(store, "readwrite");
+    t.objectStore(store).clear();
+    t.oncomplete = () => res(); t.onerror = () => rej(t.error);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// three.js scene
+// ---------------------------------------------------------------------------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0f1115);
+
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.02, 1000);
+camera.position.set(0, EYE_HEIGHT, 0);
+
+// The rig is what moves around. Camera, controllers and the SparkRenderer live inside it.
+const rig = new THREE.Group();
+rig.name = "rig";
+scene.add(rig);
+rig.add(camera);
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// sqrt(5) std devs is the recommended VR trade-off (perceptually near-identical, faster)
+const spark = new SparkRenderer({ renderer, maxStdDev: Math.sqrt(5) });
+rig.add(spark);
+
+// Floor grid so there is always a reference, even with nothing loaded
+const grid = new THREE.GridHelper(20, 20, 0x2a2f3a, 0x1c2029);
+grid.position.y = 0.001;
+scene.add(grid);
+
+// ---------------------------------------------------------------------------
+// Splat items
+// ---------------------------------------------------------------------------
+const state = {
+  projectName: "Untitled",
+  items: [],          // { id, name, blobId, url, fileName, position, rotation(deg), scale, visible, mesh, status, numSplats, bbox }
+  selectedId: null,
+  start: { position: [0, 0, 0], yaw: 0 },
+  dirty: false,
+};
+
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return "id-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function selectedItem() { return state.items.find(i => i.id === state.selectedId) || null; }
+
+function applyTransform(item) {
+  const m = item.mesh; if (!m) return;
+  m.position.fromArray(item.position);
+  m.rotation.set(
+    THREE.MathUtils.degToRad(item.rotation[0]),
+    THREE.MathUtils.degToRad(item.rotation[1]),
+    THREE.MathUtils.degToRad(item.rotation[2]));
+  m.scale.setScalar(item.scale);
+  m.visible = item.visible;
+}
+
+function syncFromMesh(item) {
+  const m = item.mesh; if (!m) return;
+  item.position = m.position.toArray().map(round4);
+  item.rotation = [m.rotation.x, m.rotation.y, m.rotation.z].map(r => round4(THREE.MathUtils.radToDeg(r)));
+  item.scale = round4(m.scale.x);
+}
+function round4(v) { return Math.round(v * 10000) / 10000; }
+
+async function loadItem(item) {
+  item.status = "loading";
+  item.progress = 0;
+  renderItems();
+  try {
+    const opts = {
+      lod: settings.lod,
+      onProgress: (e) => {
+        if (e && e.total) { item.progress = e.loaded / e.total; updateItemStatus(item); }
+      },
+    };
+    if (item.url) {
+      opts.url = item.url;
+      opts.fileName = item.fileName || item.url.split("/").pop();
+    } else {
+      const rec = await idbGet("blobs", item.blobId);
+      if (!rec) { item.status = "missing"; renderItems(); return; }
+      opts.fileBytes = await rec.blob.arrayBuffer();
+      opts.fileName = item.fileName;
+    }
+    const mesh = new SplatMesh(opts);
+    item.mesh = mesh;
+    applyTransform(item);
+    scene.add(mesh);
+    await mesh.initialized;
+    item.numSplats = mesh.numSplats || mesh.packedSplats?.numSplats || 0;
+    item.bbox = computeBBox(mesh);   // may be null until the LOD worker finishes; ensureBBoxes() retries
+    item.status = "ready";
+    setStatus(`Loaded ${item.name} (${fmtCount(item.numSplats)} splats)`);
+  } catch (err) {
+    console.error(err);
+    item.status = "error";
+    item.error = String(err?.message || err);
+    setStatus(`Failed to load ${item.name}: ${item.error}`, true);
+  }
+  renderItems();
+}
+
+// Bounding box of splat centers in mesh-local space. With `lod: true` Spark keeps the
+// splats in packedSplats.lodSplats (the original array is emptied), so check both.
+function computeBBox(mesh) {
+  const packed = mesh.packedSplats;
+  const src = packed?.lodSplats?.numSplats ? packed.lodSplats : (packed?.numSplats ? packed : null);
+  if (!src || typeof src.forEachSplat !== "function") return null;
+  const box = new THREE.Box3();
+  src.forEachSplat((_i, center) => box.expandByPoint(center));
+  return box.isEmpty() ? null : box;
+}
+let bboxClock = 0;
+function ensureBBoxes(dt) {
+  bboxClock += dt; if (bboxClock < 1) return; bboxClock = 0;
+  for (const item of state.items) {
+    if (!item.mesh || item.status !== "ready") continue;
+    if (!item.bbox) item.bbox = computeBBox(item.mesh);
+    const n = item.mesh.numSplats || item.mesh.packedSplats?.lodSplats?.numSplats || 0;
+    if (n && n !== item.numSplats) { item.numSplats = n; updateItemStatus(item); hudDirty = true; }
+  }
+}
+
+function newItemDefaults(name) {
+  return {
+    id: uuid(), name, blobId: null, url: null, fileName: name,
+    position: [0, 0, 0], rotation: settings.flip ? [180, 0, 0] : [0, 0, 0], scale: 1, visible: true,
+    mesh: null, status: "new", numSplats: 0, bbox: null,
+  };
+}
+
+async function addFiles(files) {
+  for (const file of files) {
+    const item = newItemDefaults(file.name);
+    item.blobId = uuid();
+    setStatus(`Storing ${file.name}...`, true);
+    try {
+      await idbPut("blobs", item.blobId, { name: file.name, size: file.size, blob: file });
+    } catch (err) {
+      console.error(err);
+      setStatus(`Could not store ${file.name} in browser storage: ${err.message || err}`, true);
+      continue;
+    }
+    state.items.push(item);
+    if (!state.selectedId) state.selectedId = item.id;
+    await loadItem(item);
+    markDirty();
+  }
+}
+
+async function addUrl(url) {
+  url = url.trim(); if (!url) return;
+  const item = newItemDefaults(url.split("/").pop() || url);
+  item.url = url;
+  state.items.push(item);
+  if (!state.selectedId) state.selectedId = item.id;
+  await loadItem(item);
+  markDirty();
+}
+
+async function relinkItem(item, file) {
+  item.blobId = item.blobId || uuid();
+  item.fileName = file.name;
+  await idbPut("blobs", item.blobId, { name: file.name, size: file.size, blob: file });
+  if (item.mesh) { scene.remove(item.mesh); item.mesh.dispose?.(); item.mesh = null; }
+  await loadItem(item);
+  markDirty();
+}
+
+async function removeItem(item, deleteBlob = true) {
+  if (item.mesh) { scene.remove(item.mesh); item.mesh.dispose?.(); item.mesh = null; }
+  state.items = state.items.filter(i => i !== item);
+  if (state.selectedId === item.id) state.selectedId = state.items[0]?.id || null;
+  const stillUsed = state.items.some(i => i.blobId === item.blobId);
+  if (deleteBlob && item.blobId && !stillUsed) { try { await idbDel("blobs", item.blobId); } catch {} }
+  renderItems();
+  markDirty();
+}
+
+function clearScene() {
+  for (const item of state.items) {
+    if (item.mesh) { scene.remove(item.mesh); item.mesh.dispose?.(); item.mesh = null; }
+  }
+  state.items = [];
+  state.selectedId = null;
+}
+
+// Teleport the rig so the head ends up at the splat's world-space center
+function goToItem(item) {
+  const c = itemWorldCenter(item);
+  if (!c) return;
+  // in VR the head is ~EYE_HEIGHT above the rig (local-floor), on desktop it is exactly that
+  rig.position.set(c.x, c.y - EYE_HEIGHT, c.z);
+}
+function itemWorldCenter(item) {
+  if (!item.mesh) return null;
+  const box = item.bbox ? item.bbox.clone() : new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+  item.mesh.updateMatrixWorld(true);
+  return box.applyMatrix4(item.mesh.matrixWorld).getCenter(new THREE.Vector3());
+}
+
+// Find the item whose (local) bounding box contains a world point. Smallest box wins.
+const _tmpV = new THREE.Vector3();
+function findItemAtPoint(worldPoint) {
+  let best = null, bestVol = Infinity;
+  for (const item of state.items) {
+    if (!item.mesh || !item.visible || !item.bbox) continue;
+    item.mesh.worldToLocal(_tmpV.copy(worldPoint));
+    if (item.bbox.containsPoint(_tmpV)) {
+      const s = item.bbox.getSize(new THREE.Vector3()).multiplyScalar(item.mesh.scale.x);
+      const vol = s.x * s.y * s.z;
+      if (vol < bestVol) { bestVol = vol; best = item; }
+    }
+  }
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+function projectToJson() {
+  return {
+    app: APP_NAME, appVersion: APP_VERSION, name: state.projectName, savedAt: new Date().toISOString(),
+    start: state.start,
+    items: state.items.map(i => ({
+      id: i.id, name: i.name, blobId: i.blobId, url: i.url, fileName: i.fileName,
+      position: i.position, rotation: i.rotation, scale: i.scale, visible: i.visible,
+    })),
+  };
+}
+
+let autosaveTimer = null;
+function markDirty() {
+  state.dirty = true;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(saveProject, 600);
+}
+
+async function saveProject() {
+  try {
+    await idbPut("projects", state.projectName, projectToJson());
+    localStorage.setItem(LS_CURRENT, state.projectName);
+    state.dirty = false;
+    document.getElementById("autosaveHint").textContent = "saved " + new Date().toLocaleTimeString();
+    await refreshProjectList();
+  } catch (err) {
+    console.error(err);
+    setStatus("Autosave failed: " + (err.message || err), true);
+  }
+}
+
+async function loadProject(name) {
+  const json = await idbGet("projects", name);
+  if (!json) return false;
+  clearScene();
+  state.projectName = json.name || name;
+  state.start = json.start || { position: [0, 0, 0], yaw: 0 };
+  state.items = (json.items || []).map(j => ({
+    ...newItemDefaults(j.name), ...j, mesh: null, status: "new", numSplats: 0, bbox: null,
+  }));
+  state.selectedId = state.items[0]?.id || null;
+  localStorage.setItem(LS_CURRENT, state.projectName);
+  applyStartPoint();
+  renderItems();
+  await refreshProjectList();
+  for (const item of state.items) await loadItem(item);
+  return true;
+}
+
+function applyStartPoint() {
+  rig.position.fromArray(state.start.position || [0, 0, 0]);
+  rig.rotation.set(0, state.start.yaw || 0, 0);
+  if (!renderer.xr.isPresenting) { camera.position.set(0, EYE_HEIGHT, 0); camera.rotation.set(0, 0, 0); }
+}
+
+async function newProject(name) {
+  clearScene();
+  state.projectName = name;
+  state.start = { position: [0, 0, 0], yaw: 0 };
+  applyStartPoint();
+  renderItems();
+  await saveProject();
+}
+
+async function deleteProject(name) {
+  const json = await idbGet("projects", name);
+  if (json) {
+    // remove blobs that no other project references
+    const others = (await Promise.all((await idbKeys("projects")).filter(k => k !== name).map(k => idbGet("projects", k))))
+      .flatMap(p => (p?.items || []).map(i => i.blobId)).filter(Boolean);
+    for (const it of json.items || []) {
+      if (it.blobId && !others.includes(it.blobId)) { try { await idbDel("blobs", it.blobId); } catch {} }
+    }
+    await idbDel("projects", name);
+  }
+  const keys = await idbKeys("projects");
+  if (keys.length) await loadProject(keys[0]);
+  else await newProject("Untitled");
+}
+
+async function refreshProjectList() {
+  const keys = (await idbKeys("projects")).sort();
+  const sel = document.getElementById("projectSelect");
+  sel.innerHTML = "";
+  for (const k of keys) {
+    const o = document.createElement("option");
+    o.value = k; o.textContent = k;
+    if (k === state.projectName) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+function exportProject() {
+  const json = projectToJson();
+  const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${state.projectName.replace(/[^\w\-]+/g, "_")}.splatwalk.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+async function importProject(file) {
+  const json = safeJson(await file.text());
+  if (!json || json.app !== APP_NAME) { setStatus("Not a SplatWalk project file.", true); return; }
+  clearScene();
+  state.projectName = json.name || file.name.replace(/\.splatwalk\.json$|\.json$/i, "");
+  state.start = json.start || { position: [0, 0, 0], yaw: 0 };
+  state.items = (json.items || []).map(j => ({ ...newItemDefaults(j.name), ...j, mesh: null, status: "new", numSplats: 0, bbox: null }));
+  state.selectedId = state.items[0]?.id || null;
+  applyStartPoint();
+  renderItems();
+  await saveProject();
+  for (const item of state.items) await loadItem(item);
+  setStatus(`Imported "${state.projectName}". Items marked missing need their file re-picked.`);
+}
+
+// ---------------------------------------------------------------------------
+// UI
+// ---------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const itemsEl = $("items");
+const statusEl = $("status");
+
+function setStatus(msg, busy = false) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle("busy", busy);
+}
+function fmtCount(n) { return n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(0) + "K" : String(n); }
+
+function updateItemStatus(item) {
+  const el = itemsEl.querySelector(`[data-id="${item.id}"] .status`);
+  if (el) el.textContent = statusText(item);
+}
+function statusText(item) {
+  switch (item.status) {
+    case "loading": return item.progress ? `loading ${Math.round(item.progress * 100)}%` : "loading...";
+    case "ready": return `${fmtCount(item.numSplats)} splats`;
+    case "missing": return "file missing in this browser, pick it again";
+    case "error": return "error: " + item.error;
+    default: return "";
+  }
+}
+
+function renderItems() {
+  if (!state.items.length) {
+    itemsEl.innerHTML = `<div class="empty">No splats yet.<br>Add PLY / SPZ files or drop them here.</div>`;
+    return;
+  }
+  itemsEl.innerHTML = state.items.map(item => `
+    <div class="item ${item.id === state.selectedId ? "selected" : ""}" data-id="${item.id}">
+      <div class="title" data-act="select">
+        <input type="checkbox" data-act="visible" ${item.visible ? "checked" : ""} title="Visible">
+        <span class="name" title="${esc(item.fileName || item.url || "")}">${esc(item.name)}</span>
+        <span class="status ${item.status}">${statusText(item)}</span>
+      </div>
+      <div class="grid">
+        <label>Pos</label>
+        <input type="number" step="0.1" data-f="position" data-i="0" value="${item.position[0]}">
+        <input type="number" step="0.1" data-f="position" data-i="1" value="${item.position[1]}">
+        <input type="number" step="0.1" data-f="position" data-i="2" value="${item.position[2]}">
+        <label>Rot</label>
+        <input type="number" step="5" data-f="rotation" data-i="0" value="${item.rotation[0]}">
+        <input type="number" step="5" data-f="rotation" data-i="1" value="${item.rotation[1]}">
+        <input type="number" step="5" data-f="rotation" data-i="2" value="${item.rotation[2]}">
+        <label>Scale</label>
+        <input type="number" step="0.1" min="0.001" data-f="scale" value="${item.scale}">
+        <span class="meta" style="grid-column: span 2">${item.url ? "url" : "file"}: ${esc(item.fileName || item.url || "")}</span>
+      </div>
+      <div class="actions">
+        <button class="small" data-act="goto" title="Teleport the viewer into this splat">Go to</button>
+        <button class="small" data-act="reset" title="Reset transform">Reset</button>
+        <button class="small" data-act="rename">Rename</button>
+        ${item.status === "missing" ? `<button class="small" data-act="relink">Pick file</button>` : ""}
+        <button class="small warn" data-act="remove">Remove</button>
+      </div>
+    </div>`).join("");
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+itemsEl.addEventListener("click", async (e) => {
+  const card = e.target.closest(".item"); if (!card) return;
+  const item = state.items.find(i => i.id === card.dataset.id); if (!item) return;
+  const act = e.target.closest("[data-act]")?.dataset.act;
+  if (act === "visible") { item.visible = e.target.checked; applyTransform(item); markDirty(); return; }
+  if (act === "select" || !act) { selectItem(item); return; }
+  if (act === "goto") { goToItem(item); return; }
+  if (act === "reset") { item.position = [0, 0, 0]; item.rotation = settings.flip ? [180, 0, 0] : [0, 0, 0]; item.scale = 1; applyTransform(item); renderItems(); markDirty(); return; }
+  if (act === "rename") { const n = prompt("Name", item.name); if (n) { item.name = n; renderItems(); markDirty(); } return; }
+  if (act === "remove") { if (confirm(`Remove "${item.name}" from this project?`)) await removeItem(item); return; }
+  if (act === "relink") {
+    const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".ply,.spz,.splat,.ksplat,.sog,.zip,.rad";
+    inp.onchange = () => { if (inp.files[0]) relinkItem(item, inp.files[0]); };
+    inp.click(); return;
+  }
+});
+itemsEl.addEventListener("input", (e) => {
+  const inp = e.target; if (!inp.dataset.f) return;
+  const card = inp.closest(".item"); const item = state.items.find(i => i.id === card.dataset.id); if (!item) return;
+  const v = parseFloat(inp.value); if (Number.isNaN(v)) return;
+  if (inp.dataset.f === "scale") item.scale = Math.max(0.001, v);
+  else item[inp.dataset.f][+inp.dataset.i] = v;
+  applyTransform(item);
+  markDirty();
+});
+
+function selectItem(item) {
+  state.selectedId = item?.id || null;
+  for (const card of itemsEl.querySelectorAll(".item")) card.classList.toggle("selected", card.dataset.id === state.selectedId);
+}
+function cycleSelection(dir = 1) {
+  if (!state.items.length) return;
+  const idx = state.items.findIndex(i => i.id === state.selectedId);
+  const next = state.items[(idx + dir + state.items.length) % state.items.length];
+  selectItem(next);
+}
+
+$("addFilesBtn").onclick = () => $("fileInput").click();
+$("fileInput").onchange = async () => { await addFiles([...$("fileInput").files]); $("fileInput").value = ""; };
+$("addUrlBtn").onclick = () => { addUrl($("urlInput").value); $("urlInput").value = ""; };
+$("urlInput").onkeydown = (e) => { if (e.key === "Enter") $("addUrlBtn").click(); };
+$("toggleUi").onclick = () => {
+  const ui = $("ui"); ui.classList.toggle("collapsed");
+  $("toggleUi").textContent = ui.classList.contains("collapsed") ? "Show panel" : "Hide panel";
+};
+$("aboutBtn").onclick = () => $("modal").classList.add("open");
+$("closeModal").onclick = () => $("modal").classList.remove("open");
+$("modal").onclick = (e) => { if (e.target === $("modal")) $("modal").classList.remove("open"); };
+
+$("projectSelect").onchange = async (e) => { if (state.dirty) await saveProject(); await loadProject(e.target.value); };
+$("newProjectBtn").onclick = async () => { const n = prompt("New project name", "Scene " + new Date().toLocaleDateString()); if (n) { if (state.dirty) await saveProject(); await newProject(n); } };
+$("saveAsBtn").onclick = async () => { const n = prompt("Save project as", state.projectName); if (n) { state.projectName = n; await saveProject(); } };
+$("deleteProjectBtn").onclick = async () => { if (confirm(`Delete project "${state.projectName}"?`)) await deleteProject(state.projectName); };
+$("exportBtn").onclick = exportProject;
+$("importBtn").onclick = () => $("importInput").click();
+$("importInput").onchange = async () => { if ($("importInput").files[0]) await importProject($("importInput").files[0]); $("importInput").value = ""; };
+$("saveViewBtn").onclick = () => { state.start = { position: rig.position.toArray().map(round4), yaw: round4(rig.rotation.y) }; markDirty(); setStatus("Start point stored."); };
+$("wipeBtn").onclick = async () => {
+  if (!confirm("Delete ALL SplatWalk projects and splat files stored in this browser?")) return;
+  clearScene(); await idbClear("blobs"); await idbClear("projects"); localStorage.removeItem(LS_CURRENT);
+  await newProject("Untitled"); setStatus("Storage wiped.");
+};
+
+// settings wiring
+$("setLod").checked = settings.lod;
+$("setFlip").checked = settings.flip;
+$("setFbScale").value = String(settings.fbScale);
+$("setSpeed").value = settings.moveSpeed;
+$("setLod").onchange = (e) => { settings.lod = e.target.checked; saveSettings(); };
+$("setFlip").onchange = (e) => { settings.flip = e.target.checked; saveSettings(); };
+$("setFbScale").onchange = (e) => { settings.fbScale = parseFloat(e.target.value); saveSettings(); if (!renderer.xr.isPresenting) renderer.xr.setFramebufferScaleFactor(settings.fbScale); };
+$("setSpeed").onchange = (e) => { settings.moveSpeed = Math.max(0.1, parseFloat(e.target.value) || 1); saveSettings(); };
+
+// drag & drop
+addEventListener("dragover", (e) => { e.preventDefault(); $("dropOverlay").classList.add("on"); });
+addEventListener("dragleave", (e) => { if (!e.relatedTarget) $("dropOverlay").classList.remove("on"); });
+addEventListener("drop", async (e) => {
+  e.preventDefault(); $("dropOverlay").classList.remove("on");
+  const files = [...e.dataTransfer.files].filter(f => /\.(ply|spz|splat|ksplat|sog|zip|rad)$/i.test(f.name));
+  const proj = [...e.dataTransfer.files].find(f => /\.json$/i.test(f.name));
+  if (proj) await importProject(proj);
+  if (files.length) await addFiles(files);
+});
+
+// ---------------------------------------------------------------------------
+// Desktop controls: drag to look, WASD / QE to move, Shift fast
+// ---------------------------------------------------------------------------
+const keys = new Set();
+addEventListener("keydown", (e) => { if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return; keys.add(e.code); });
+addEventListener("keyup", (e) => keys.delete(e.code));
+addEventListener("blur", () => keys.clear());
+
+let dragging = false, lastX = 0, lastY = 0, pitch = 0;
+const cv = renderer.domElement;
+cv.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener("pointerup", (e) => { dragging = false; cv.releasePointerCapture(e.pointerId); });
+cv.addEventListener("pointercancel", () => { dragging = false; });
+cv.addEventListener("pointermove", (e) => {
+  if (!dragging || renderer.xr.isPresenting) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
+  rig.rotation.y -= dx * 0.004;
+  pitch = THREE.MathUtils.clamp(pitch - dy * 0.004, -1.5, 1.5);
+  camera.rotation.set(pitch, 0, 0);
+});
+cv.addEventListener("wheel", (e) => {
+  if (renderer.xr.isPresenting) return;
+  const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+  rig.position.addScaledVector(dir, -Math.sign(e.deltaY) * 0.5);
+}, { passive: true });
+
+function updateDesktopControls(dt) {
+  if (renderer.xr.isPresenting) return;
+  const speed = settings.moveSpeed * (keys.has("ShiftLeft") || keys.has("ShiftRight") ? 4 : 1);
+  const move = new THREE.Vector3(
+    (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0),
+    (keys.has("KeyE") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0),
+    (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) - (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0));
+  if (move.lengthSq() === 0) return;
+  move.normalize().multiplyScalar(speed * dt);
+  const y = move.y; move.y = 0;
+  move.applyAxisAngle(new THREE.Vector3(0, 1, 0), rig.rotation.y);
+  rig.position.add(move);
+  rig.position.y += y;
+}
+
+// ---------------------------------------------------------------------------
+// VR: SparkXr handles session + stick locomotion. Grab/scale and buttons are ours.
+// ---------------------------------------------------------------------------
+const enterVrBtn = $("enterVrBtn");
+const deadzone = (v) => Math.abs(v) < 0.15 ? 0 : v;
+
+const xr = new SparkXr({
+  renderer,
+  mode: "vr",
+  button: false,
+  element: enterVrBtn,
+  referenceSpaceType: "local-floor",
+  frameBufferScaleFactor: settings.fbScale,
+  controllers: {
+    moveSpeed: 1,
+    moveDirection: true,   // move relative to where the head is facing (yaw only)
+    getMove: (g) => g.leftIsHand ? new THREE.Vector3() : new THREE.Vector3(
+      deadzone(g.left?.axes[2] ?? 0),
+      -deadzone(g.right?.axes[3] ?? 0),
+      deadzone(g.left?.axes[3] ?? 0)).multiplyScalar(settings.moveSpeed),
+    getRotate: () => new THREE.Vector3(),          // snap turn is handled below
+    getFast: (g) => g.right?.buttons[0]?.pressed ?? false,   // right trigger = fast
+    getSlow: (g) => g.left?.buttons[0]?.pressed ?? false,    // left trigger = slow
+  },
+  onReady: (supported) => {
+    enterVrBtn.disabled = !supported;
+    enterVrBtn.textContent = supported ? "Enter VR" : "VR not available";
+    if (!supported) enterVrBtn.title = "Open this page in the Quest browser (needs https or localhost).";
+  },
+  onEnterXr: () => { hud.visible = true; enterVrBtn.textContent = "Exit VR"; },
+  onExitXr: () => {
+    hud.visible = false;
+    enterVrBtn.textContent = "Enter VR";
+    camera.position.set(0, EYE_HEIGHT, 0); camera.rotation.set(pitch, 0, 0);
+    // drop any grab still in progress
+    if (grab.item?.mesh) { scene.attach(grab.item.mesh); syncFromMesh(grab.item); renderItems(); markDirty(); }
+    grab.item = null; grab.controller = null; grab.second = null;
+  },
+});
+
+// Controllers (visuals + grab events)
+const controllers = [];
+for (let i = 0; i < 2; i++) {
+  const c = renderer.xr.getController(i);
+  c.userData.handedness = null;
+  c.addEventListener("connected", (e) => { c.userData.handedness = e.data.handedness; });
+  c.addEventListener("disconnected", () => { c.userData.handedness = null; });
+  c.addEventListener("squeezestart", () => onSqueezeStart(c));
+  c.addEventListener("squeezeend", () => onSqueezeEnd(c));
+  rig.add(c);
+  const gripObj = renderer.xr.getControllerGrip(i);
+  const vis = new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 8), new THREE.MeshBasicMaterial({ color: 0x5ee0c1 }));
+  const ray = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -0.15)]),
+    new THREE.LineBasicMaterial({ color: 0x5ee0c1, transparent: true, opacity: 0.6 }));
+  c.add(ray);
+  gripObj.add(vis);
+  rig.add(gripObj);
+  controllers.push(c);
+}
+
+const grab = { item: null, controller: null, second: null, startDist: 0, startScale: 1 };
+const _pA = new THREE.Vector3(), _pB = new THREE.Vector3();
+
+function onSqueezeStart(c) {
+  const p = c.getWorldPosition(_pA);
+  if (grab.item && grab.controller && grab.controller !== c) {
+    // second hand: start scaling
+    grab.second = c;
+    grab.startDist = Math.max(0.05, grab.controller.getWorldPosition(_pA).distanceTo(c.getWorldPosition(_pB)));
+    grab.startScale = grab.item.mesh.scale.x;
+    return;
+  }
+  if (grab.item) return;
+  const item = findItemAtPoint(p) || selectedItem();
+  if (!item?.mesh) return;
+  selectItem(item);
+  grab.item = item; grab.controller = c;
+  c.attach(item.mesh);
+}
+
+function onSqueezeEnd(c) {
+  if (!grab.item) return;
+  if (c === grab.second) { grab.second = null; return; }
+  if (c !== grab.controller) return;
+  if (grab.second) {
+    // hand the splat over to the other hand
+    scene.attach(grab.item.mesh);
+    grab.second.attach(grab.item.mesh);
+    grab.controller = grab.second; grab.second = null;
+    return;
+  }
+  scene.attach(grab.item.mesh);
+  syncFromMesh(grab.item);
+  renderItems();
+  markDirty();
+  grab.item = null; grab.controller = null;
+}
+
+function updateGrab() {
+  if (grab.item && grab.second) {
+    const d = grab.controller.getWorldPosition(_pA).distanceTo(grab.second.getWorldPosition(_pB));
+    grab.item.mesh.scale.setScalar(Math.max(0.001, grab.startScale * d / grab.startDist));
+  }
+}
+
+// Buttons and snap turn (edge-triggered)
+const prevButtons = { left: [], right: [] };
+let snapArmed = true;
+function updateXrButtons() {
+  const session = renderer.xr.getSession(); if (!session) return;
+  for (const src of session.inputSources) {
+    const gp = src.gamepad; if (!gp || !(src.handedness in prevButtons)) continue;
+    const prev = prevButtons[src.handedness];
+    const pressed = (i) => !!gp.buttons[i]?.pressed;
+    const edge = (i) => pressed(i) && !prev[i];
+    if (src.handedness === "right") {
+      if (edge(5)) { cycleSelection(1); hudDirty = true; }           // B: next splat
+      const ax = gp.axes[2] ?? 0;
+      if (snapArmed && Math.abs(ax) > 0.7) { snapTurn(Math.sign(ax) * SNAP_TURN_DEG); snapArmed = false; }
+      if (Math.abs(ax) < 0.3) snapArmed = true;
+    } else {
+      if (edge(5)) { hud.visible = !hud.visible; }                   // Y: toggle HUD
+      if (edge(4)) { applyStartPoint(); }                            // X: back to start point
+    }
+    prevButtons[src.handedness] = gp.buttons.map(b => b.pressed);
+  }
+}
+
+function snapTurn(deg) {
+  const pivot = camera.getWorldPosition(new THREE.Vector3());
+  rig.parent.worldToLocal(pivot);
+  const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -THREE.MathUtils.degToRad(deg));
+  rig.position.sub(pivot).applyQuaternion(q).add(pivot);
+  rig.quaternion.premultiply(q);
+}
+
+// ---------------------------------------------------------------------------
+// In-VR HUD (canvas texture on a small plane in front of the camera)
+// ---------------------------------------------------------------------------
+const hudCanvas = document.createElement("canvas");
+hudCanvas.width = 768; hudCanvas.height = 192;
+const hudCtx = hudCanvas.getContext("2d");
+const hudTex = new THREE.CanvasTexture(hudCanvas);
+hudTex.colorSpace = THREE.SRGBColorSpace;
+const hud = new THREE.Mesh(
+  new THREE.PlaneGeometry(0.48, 0.12),
+  new THREE.MeshBasicMaterial({ map: hudTex, transparent: true, depthTest: false, depthWrite: false }));
+hud.renderOrder = 1000;
+hud.position.set(0, -0.28, -0.8);
+hud.rotation.x = -0.35;
+hud.visible = false;
+camera.add(hud);
+
+let hudDirty = true, hudLastUpdate = 0, fps = 0, frames = 0, fpsClock = 0;
+function drawHud() {
+  const c = hudCtx;
+  c.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+  c.fillStyle = "rgba(15,17,21,0.75)";
+  roundRect(c, 0, 0, hudCanvas.width, hudCanvas.height, 24); c.fill();
+  c.fillStyle = "#5ee0c1"; c.font = "bold 34px system-ui, sans-serif";
+  c.fillText(`${APP_NAME} v${APP_VERSION}`, 28, 52);
+  c.fillStyle = "#e6e8ee"; c.font = "30px system-ui, sans-serif";
+  const sel = selectedItem();
+  const total = state.items.reduce((a, i) => a + (i.numSplats || 0), 0);
+  c.fillText(sel ? `Selected: ${sel.name}` : "No splat selected", 28, 100);
+  c.fillStyle = "#8a92a6"; c.font = "26px system-ui, sans-serif";
+  c.fillText(`${state.items.length} splats, ${fmtCount(total)} total  |  ${fps} fps  |  ${grab.item ? (grab.second ? "scaling" : "holding") : "grip to grab"}`, 28, 150);
+  hudTex.needsUpdate = true;
+}
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+let lastT = performance.now();
+renderer.setAnimationLoop((t) => {
+  const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+  frames++; fpsClock += dt;
+  if (fpsClock >= 0.5) { fps = Math.round(frames / fpsClock); frames = 0; fpsClock = 0; hudDirty = true; }
+  ensureBBoxes(dt);
+
+  if (renderer.xr.isPresenting) {
+    xr.updateControllers(camera);
+    updateXrButtons();
+    updateGrab();
+    if (hud.visible && (hudDirty || t - hudLastUpdate > 500)) { drawHud(); hudDirty = false; hudLastUpdate = t; }
+  } else {
+    updateDesktopControls(dt);
+  }
+  renderer.render(scene, camera);
+});
+
+// ---------------------------------------------------------------------------
+// Boot: restore last project
+// ---------------------------------------------------------------------------
+(async () => {
+  try {
+    const current = localStorage.getItem(LS_CURRENT);
+    if (!(current && await loadProject(current))) {
+      const keys = await idbKeys("projects");
+      if (keys.length) await loadProject(keys[0]); else await newProject("Untitled");
+    }
+  } catch (err) {
+    console.error(err);
+    setStatus("Storage unavailable: " + (err.message || err), true);
+  }
+  if (!window.isSecureContext) setStatus("Not a secure context: VR needs https:// or localhost.", true);
+})();
+
+// expose for debugging
+window.splatwalk = { state, scene, rig, camera, renderer, spark, xr, THREE, APP_VERSION };
+</script>
+</body>
+</html>

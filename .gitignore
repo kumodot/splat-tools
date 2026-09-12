@@ -1,0 +1,35 @@
+# --- Local certificates for the https dev server (never commit keys) ---
+SplatWalk/cert.pem
+SplatWalk/key.pem
+
+# --- Splat data ---
+# Training PLYs run to hundreds of MB. GitHub rejects any file over 100 MB and a
+# repo is not a CDN. Host big scenes as GitHub Release assets instead and load
+# them by URL from inside SplatWalk (Release assets allow 2 GB and send CORS
+# headers, and they do not count against the repository size).
+SplatWalk/splats/*
+!SplatWalk/splats/README.md
+
+# --- Spirula Studio ---
+# A 119 MB third-party GPL binary. Too big for GitHub and not ours to
+# redistribute. SplatForge points at wherever you unzipped it.
+SplatForge/spirula.exe
+SplatForge/spirula/
+SplatForge/*.dll
+
+# --- SplatForge scratch and results ---
+SplatForge/work/
+SplatForge/output/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# --- OS noise ---
+Thumbs.db
+desktop.ini
+.DS_Store
+.commitmsg.txt 

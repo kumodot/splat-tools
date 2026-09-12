@@ -1,0 +1,273 @@
+# SplatWalk
+
+Walk inside Gaussian Splat scenes on a Meta Quest 3 (WebXR) or on the desktop.
+Single HTML file, no build step, no APK. Loads `.ply` / `.spz` / `.splat` / `.ksplat` / `.sog`,
+lets you place several splats in one space, and saves projects in the browser.
+
+Current version: **v0.3.6** (`SplatWalk_v0.3.6.html`). The version is in the file name, the panel header,
+the About dialog and the in-VR HUD, so you always know which build you are looking at.
+Older builds live in `../archive/SplatWalk/`; `serve.py` always opens the newest one here.
+
+**The easiest way to run it is not to run it at all:** open
+[kumodot.github.io/splat-tools](https://kumodot.github.io/splat-tools/) in the Quest browser.
+GitHub Pages serves it over https, which is the one condition WebXR insists on, so
+**Enter VR** works with no cable, no `adb` and no self-signed certificate.
+
+Built with [three.js](https://threejs.org) and [Spark](https://sparkjs.dev) (both vendored in `vendor/`, works offline).
+
+## Folder
+
+```
+SplatWalk/
+  SplatWalk_v0.3.6.html     the app (older builds are in ../archive/SplatWalk/)
+  vendor/                   three.js + Spark (local copies, no CDN)
+  splats/                   optional: drop files here and load them by URL (splats/name.spz)
+  tools/                    splat_prep: shrink huge PLYs down to headset size (see below)
+  serve.py                  dev server (http for desktop, --https for the Quest)
+  run_SplatWalk.bat         double-click: starts the server and opens the app on the desktop
+  run_SplatWalk_https.bat   starts the https server for the headset (needs cert.pem/key.pem, see below)
+```
+
+## Desktop test
+
+Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.3.6.html`.
+
+- Drag to look, `WASD` move, `Q`/`E` down/up, `Shift` fast, mouse wheel forward/back
+- `+ Add files` or drag-and-drop splat files onto the page
+- Each splat has position / rotation (degrees) / scale fields, `Go to` teleports you into it
+
+## Quest 3
+
+WebXR needs a secure context, so plain `http://<pc-ip>:8080` will not offer "Enter VR" in the Quest browser.
+Pick one:
+
+1. **GitHub Pages (simplest, no cables, already live).** Open
+   [kumodot.github.io/splat-tools](https://kumodot.github.io/splat-tools/) in the Quest browser.
+   Load splats from the headset's own storage via `+ Add files`, or paste the URL of a
+   Release asset into **Add URL**.
+2. **adb reverse (fastest iteration).** Developer mode on the headset, USB cable, then on the PC:
+   `adb reverse tcp:8080 tcp:8080` and run `run_SplatWalk.bat`. In the Quest browser open
+   `http://localhost:8080/SplatWalk_v0.3.6.html`. `localhost` counts as secure, so VR works.
+3. **Self-signed https on the LAN.** Create a cert once (Git for Windows has openssl):
+   `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=splatwalk"`
+   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.3.6.html` on the headset.
+   Accept the certificate warning once. Option 1 makes this one unnecessary in practice.
+
+Put the headset on, press **Enter VR**.
+
+### VR controls
+
+| Input | Action |
+|---|---|
+| Left stick | Move (relative to where you look) |
+| Right stick left/right | Snap turn 30 degrees |
+| Right stick up/down | Fly up / down |
+| Right trigger (hold) | Move fast |
+| Left trigger (hold) | Move slow |
+| Grip | Grab the splat your hand is inside (or the selected one) and move / rotate it |
+| Both grips | Scale the held splat (spread hands apart) |
+| B | Select next splat |
+| Y | Toggle the HUD |
+| X | Return to the project start point |
+
+Desktop cine keys: `K` add waypoint, `P` play, `R` record, `O` orbit what you are looking
+at, `M` hide the pointer.
+
+### Panel keys
+
+Recording hides the entire interface so nothing but the scene is on screen, which is
+great until you forget which key brings it back. **`Esc` always brings it back**: it stops
+the take, leaves clean view, restores the panel and unhides the pointer, in that order.
+
+| Key | |
+|---|---|
+| `1` | side panel |
+| `2` `3` `4` | fold Project / Cine / Settings |
+| `0` | clean view: nothing on screen at all |
+| `Esc` | stop recording, and get the interface back |
+| `H` | the controls card |
+
+The bar under the splat list is a **splitter**: drag it to trade height between the list
+and the Cine/Settings block below, double-click to reset. Each splat card also folds to a
+single line from the chevron by its name, and **Collapse all** folds every one at once.
+All of it is remembered.
+
+Transforms changed in VR are written back to the panel and autosaved.
+
+## Orientation: the thing that makes or breaks a scene
+
+Gaussian splat captures do not agree on which axis points up. Most PLY exports are Y-down, but COLMAP
+and a lot of scanning services are **Z-up**. Load a Z-up scene into a Y-up viewer and the room is lying
+on its side: walking pushes you through walls and "up" takes you through a wall instead of the ceiling.
+Nothing about the controls will feel right, and it is easy to blame the navigation.
+
+So every splat card has an **Up axis** dropdown and a **Ground** button, and under them the measured
+size of the scene:
+
+```
+7.0 x 7.5 m floor, 3.3 m high      <- correct
+7.0 x 3.3 m floor, 7.5 m high      <- wrong axis, a 7.5 m ceiling gives it away
+```
+
+Read the height. Rooms are 2.4-3.5 m tall. If the "high" number is the odd one out, the up axis is wrong,
+so try the next option in the dropdown. That readout is the fastest check there is.
+
+New splats are measured, auto-oriented and grounded on load (Settings > Auto-orient). The guess uses
+the shortest axis of the 1-99 percentile box, because rooms and outdoor captures are wider than they are
+tall. It is a guess and it is stated as one in the status bar; the dropdown overrides it and the choice
+is saved with the project.
+
+**Ground** drops the floor to y=0 and centres the room on the origin, so you spawn standing on the floor
+in the middle of the scene. A second splat loaded into the same project is parked 1.5 m clear of the
+first along +X instead of on top of it; move it from there.
+
+Also worth knowing: **scale is usually already correct.** Photogrammetry scenes normally come out metric.
+If a scene feels like it needs a scale of 100, that is almost always the junk-splat halo confusing the
+LOD system rather than a real scale problem. Run it through `tools/splat_prep` with `--percentile-crop 1`
+instead of scaling it up.
+
+## Cine mode: flythroughs worth recording
+
+Handheld mouse-look is jittery and looks it. The camera is driven through a target and
+an actual value, and every frame the actual eases toward the target, so pointing
+somewhere makes the camera *arrive* there rather than snap. That lag is the gimbal feel.
+
+- **Smoothing** sets how long the camera takes to catch up. Off is the old direct
+  control; 0.3-0.6s is the sweet spot for handheld-looking moves; past 1s it floats.
+  The ease is frame-rate independent, so it feels identical at 30 and at 144 fps.
+- **Lens** narrows the field of view. A 35-45 degree lens compresses the scene and
+  reads as far more cinematic than the 70 degree default, which exists for VR comfort.
+
+**Orbit** circles a point at a fixed radius. The centre is never a mystery: a crosshair
+marks where the pick will land and a ring sits on the centre itself, sized to stay the
+same on screen however far away it is. Both disappear while recording.
+
+To set the centre, **click the surface you want to orbit**. That is the whole
+interaction, and there is no button for it: a button would have asked you to aim with
+the screen while clicking somewhere else with the mouse, which reads as a contradiction
+even though the crosshair never followed the pointer. Pressing **Orbit** starts on
+whatever is framed in the middle, and `O` does the same from the keyboard without
+moving the mouse at all. If the ray escapes through open sky it falls back to the
+selected splat's centre and says so, rather than dropping the centre somewhere random.
+
+The mouse is split by button, the way any 3D app does it:
+
+| Input | Free fly | Orbit |
+|---|---|---|
+| left drag | look around | reframe: swing around and over the centre |
+| middle drag, or `Ctrl` + left drag | slide the camera sideways and up | carry the centre with you |
+| wheel | move forward and back | change the radius |
+| left click (no drag) | nothing | make that point the new centre |
+
+Panning in orbit scales with the radius, so it feels the same whether you are inside a
+room or looking at it from across the street. A left press that travels less than five
+pixels counts as a click rather than a drag, so tapping a surface to recentre never
+accidentally swings the camera.
+
+The speed slider runs both ways with a dead stop in the middle, so you can park the
+orbit and use it as a tripod.
+
+**Shots** are the reel maker. Fly to a spot, press `K`, fly somewhere else, press `K`
+again. Two or more waypoints and Play runs a Catmull-Rom curve through them with an
+ease in and out, so three rough stops become one long continuous move. The angles are
+interpolated alongside, with yaw unwrapped so a path crossing north turns the short way
+instead of spinning. Shots are saved with the project.
+
+You can see the shot rather than imagine it. Every waypoint gets a numbered marker at
+eye height, drawn at a constant size on screen so one across the room stays readable,
+and the curve is drawn through them, so a stop that makes the path bulge is obvious
+before you press Play. A strip across the top lists the stops:
+
+```
+Shot  [1 x] [2 x] [3 x] [4 x]
+```
+
+Click a number to jump there instantly. Click its `x` to delete that stop; the curve
+rebuilds and the rest renumber. Markers, curve and strip all disappear the moment
+playback or recording starts, so none of it reaches the take.
+
+**Record** captures the canvas straight to a `.webm` at 40 Mbit, no screen recorder
+needed. It hides the whole interface first, so nothing but the scene lands in the file.
+Pressing Record with a shot loaded plays the shot and stops recording at the end;
+with no shot it just records whatever you fly by hand.
+
+The pointer hides itself after 1.5s without moving, and `M` pins it hidden. Recording
+hides it regardless. That is the detail that otherwise ruins an otherwise good take.
+
+Takes are numbered per project per day and the counter survives a reload, so pressing
+`R` between flights fills the folder in shooting order:
+
+```
+Kitchen_20260912_take01.webm
+Kitchen_20260912_take02.webm
+```
+
+## Projects
+
+- Everything autosaves to the current project (IndexedDB in that browser, splat bytes included).
+  Reopen the page and the last project comes back, so `Save` exists for peace of mind rather
+  than necessity.
+- The **Open** dropdown is the project switcher: build a scene from one location, press `New`,
+  build another from somewhere else, and flip between them from that list.
+- `Save`, `Save as`, `New`, `Del` manage them. `Set start point` stores where you are standing
+  as the spawn point.
+- `Export JSON` writes a `<name>.splatwalk.json` layout. `Import JSON` restores it; files that are not in that
+  browser's storage show **Pick file** so you can re-link them (URL-loaded splats need nothing).
+- Projects are per browser: the desktop Chrome and the Quest browser each have their own storage.
+  Move layouts between them with Export / Import, and host the splat files by URL if you want zero re-uploads.
+
+## Performance notes for the Quest
+
+- **Build LOD on load** (Settings, on by default) makes Spark generate a level-of-detail tree in a worker,
+  which is what keeps multi-million-splat scenes usable on the headset. It costs a few seconds per file.
+- Convert big PLYs to `.spz` (about 10x smaller, same look) before copying them to the headset.
+- **VR resolution** 0.75x is a good default; drop to 0.5x for very dense scenes.
+- The junk-splat halo is a performance problem, not just a cosmetic one: Spark spreads its LOD splat
+  budget over the whole bounding box, so a room occupying 1.4% of a +/-1000 unit box renders with almost
+  none of the budget. Crop first (see below), do not scale up to compensate.
+
+## Preparing big scenes (`tools/splat_prep`)
+
+Raw training PLYs are far too big for a headset: a 3.6M-splat scene is ~860 MB because 73% of every
+splat is spherical-harmonic data that only adds view-dependent shine. `tools/splat_prep_v0.1.0.py`
+(needs `numpy`) strips that, drops broken and near-transparent splats, throws away the stray junk
+splats floating far outside the room, and decimates by importance (alpha x size) to a target count.
+It streams, so a 40 GB input on an 8 GB machine is fine.
+
+```
+# look first: splat count, SH degree, bounding box, where the real scene actually is
+python tools/splat_prep_v0.1.0.py scene.ply
+
+# make a headset-sized copy
+python tools/splat_prep_v0.1.0.py scene.ply -o scene_quest.ply --target 1500000 --percentile-crop 1
+
+# keep just one room
+python tools/splat_prep_v0.1.0.py scene.ply -o room.ply --crop -5,-2,-5,5,3,5
+```
+
+`--percentile-crop 1` is worth using almost always: capture pipelines leave a halo of junk splats
+hundreds of meters out, which wrecks the bounding box and the LOD budget for nothing.
+
+Typical results on a real scan (Inria 3DGS output, 3.65M splats):
+
+| input | output | size |
+|---|---|---|
+| 860 MB, 3.65M splats | `--target 1500000` | 80 MB, 1.5M splats |
+| 213 MB, 900K splats | `--percentile-crop 1` | 56 MB, 863K splats |
+| 106 MB, 448K splats | `--percentile-crop 1` | 28 MB, 430K splats |
+
+If a scan ships a folder like `point_cloud/iteration_N/` with `point_cloud_1.ply`, `_2`, `_3`, those
+are already a LOD pyramid (each one roughly half the splats of the previous). Start from the smallest
+one that still looks good rather than decimating the full-size file.
+
+## Roadmap ideas
+
+- In-VR file picker and project switcher (currently done from the 2D panel before entering VR)
+- Splat cropping box, per-splat opacity, ground alignment helper
+- Passthrough (AR) mode
+
+## Credits
+
+Marcelo Souza / Kumodot.art - 2026 // @Msouza3d
+
+Support this and other projects: [Support Marcelo Souza on Ko-fi](https://ko-fi.com/msouza3d)

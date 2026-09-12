@@ -1,0 +1,5 @@
+# SplatForge dependencies. run_SplatForge.bat installs these on first launch,
+# so you normally never run pip yourself.
+PyQt6>=6.6
+opencv-python>=4.9
+numpy>=1.24
