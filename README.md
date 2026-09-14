@@ -3,6 +3,8 @@
 Two tools that together take a handheld video and put you inside it, wearing a
 Meta Quest 3.
 
+![SplatWalk running a 489K-splat interior scan, with the cine panel and the controls card](docs/splatwalk-screenshot.jpg)
+
 ```
 video  ->  sharp frames  ->  camera poses  ->  splat PLY  ->  Quest-sized PLY  ->  walk inside it
            SplatForge        Spirula           Spirula        splat_prep          SplatWalk
