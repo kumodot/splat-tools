@@ -4,7 +4,7 @@ Walk inside Gaussian Splat scenes on a Meta Quest 3 (WebXR) or on the desktop.
 Single HTML file, no build step, no APK. Loads `.ply` / `.spz` / `.splat` / `.ksplat` / `.sog`,
 lets you place several splats in one space, and saves projects in the browser.
 
-Current version: **v0.4.2** (`SplatWalk_v0.4.2.html`). The version is in the file name, the panel header,
+Current version: **v0.4.3** (`SplatWalk_v0.4.3.html`). The version is in the file name, the panel header,
 the About dialog and the in-VR HUD, so you always know which build you are looking at.
 Older builds live in `../archive/SplatWalk/`; `serve.py` always opens the newest one here.
 
@@ -19,7 +19,7 @@ Built with [three.js](https://threejs.org) and [Spark](https://sparkjs.dev) (bot
 
 ```
 SplatWalk/
-  SplatWalk_v0.4.2.html     the app (older builds are in ../archive/SplatWalk/)
+  SplatWalk_v0.4.3.html     the app (older builds are in ../archive/SplatWalk/)
   vendor/                   three.js + Spark (local copies, no CDN)
   splats/                   optional: drop files here and load them by URL (splats/name.spz)
   tools/                    splat_prep: shrink huge PLYs down to headset size (see below)
@@ -30,7 +30,7 @@ SplatWalk/
 
 ## Desktop test
 
-Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.4.2.html`.
+Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.4.3.html`.
 
 - Drag to look, `WASD` move, `Q`/`E` down/up, `Shift` fast, mouse wheel forward/back
 - `+ Add files` or drag-and-drop splat files onto the page
@@ -47,10 +47,10 @@ Pick one:
    Release asset into **Add URL**.
 2. **adb reverse (fastest iteration).** Developer mode on the headset, USB cable, then on the PC:
    `adb reverse tcp:8080 tcp:8080` and run `run_SplatWalk.bat`. In the Quest browser open
-   `http://localhost:8080/SplatWalk_v0.4.2.html`. `localhost` counts as secure, so VR works.
+   `http://localhost:8080/SplatWalk_v0.4.3.html`. `localhost` counts as secure, so VR works.
 3. **Self-signed https on the LAN.** Create a cert once (Git for Windows has openssl):
    `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=splatwalk"`
-   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.4.2.html` on the headset.
+   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.4.3.html` on the headset.
    Accept the certificate warning once. Option 1 makes this one unnecessary in practice.
 
 Put the headset on, press **Enter VR**.
@@ -132,9 +132,22 @@ Handheld mouse-look is jittery and looks it. The camera is driven through a targ
 an actual value, and every frame the actual eases toward the target, so pointing
 somewhere makes the camera *arrive* there rather than snap. That lag is the gimbal feel.
 
-- **Smoothing** sets how long the camera takes to catch up. Off is the old direct
-  control; 0.3-0.6s is the sweet spot for handheld-looking moves; past 1s it floats.
-  The ease is frame-rate independent, so it feels identical at 30 and at 144 fps.
+- **Gimbal** sets how long the camera takes to catch up, and it is **on by default**
+  at 0.15s, because a tool for recording camera moves should behave like one out of
+  the box. `1:1` is direct control; 0.3-0.6s is the sweet spot for handheld-looking
+  moves; past 1s it floats. The ease is frame-rate independent, so it feels identical
+  at 30 and at 144 fps.
+
+  Rotation is damped harder than translation, by a fixed 1.8x, from the same slider.
+  The two inputs are lopsided: holding `W` ramps the target up at a steady speed and
+  therefore already arrives smooth, while a flick of the wrist is a step change. One
+  time constant for both would mean choosing between sluggish movement and a jerky
+  pan. This is also why the mouse used to feel rougher than the keys even though both
+  always went through the same ease.
+
+  What this slider does is **recorded into a take**: motion recording stores the eased
+  pose, not the raw one. So the gimbal is the first stage of stabilisation and the
+  take's own **Detail** filter is the second.
 - **Lens** narrows the field of view. A 35-45 degree lens compresses the scene and
   reads as far more cinematic than the 70 degree default, which exists for VR comfort.
 
@@ -234,8 +247,49 @@ with deliberate stalls injected during encoding.
 | **Resumable** | Sequence frames are written as they go, and a re-run skips what is already on disk |
 
 Takes are listed in the order they render, with a tickbox each. Click the name
-to rename, the triangle to preview it in the viewport, the arrow to move it up.
+to rename, the play icon to preview it in the viewport, the arrow to move it up.
 They are saved with the project like everything else.
+
+### Filters
+
+A recording is never edited. What the list shows, and what the renderer reads, is a
+**clip**: a pointer to one recording plus a set of parameters. Drag a slider back to
+where it was and you have the original recording again, and the duplicate button makes
+a second clip off the same recording, so two different trims of one flight cost nothing.
+Preview and render call the same function, so what you approve on screen is what lands
+in the file.
+
+Click the triangle on a take to open them. In order:
+
+| | |
+|---|---|
+| **Trim** | Cuts the still head and tail. On by default: the gap between clicking Record and actually starting to fly is dead weight, and it is easy to spot because nothing is moving. Type over either number to set it by hand, `auto` to detect again |
+| **Detail** | Smooths, then drops every point the curve can do without. At 100% you get the raw samples; at the bottom, a handful of keys with a curve through them |
+| **Speed** | Retimes the clip, 0.25x to 4x. The readout shows the resulting length |
+| **Ease** | Blends between a constant-speed move and a full ease in and out |
+| **Handheld** | Seeded noise on rotation and on sway in the camera's own frame. Deterministic, so a preview and the render shake identically |
+
+**To waypoints** turns the filtered path into editable waypoints, which is how you take
+a rough hand-flown pass and nudge it by hand afterwards. Pull **Detail** down first
+unless you want several hundred of them.
+
+Two details worth knowing, because both are the kind of thing that is invisible until
+it ruins a shot:
+
+**Detail smooths before it decimates, not after.** A curve fit run straight on raw
+samples chases noise spikes, because a spike *is* the point of largest deviation, so
+the spikes are exactly what survives while the real motion is thrown away.
+
+**The interpolation is a monotone cubic, not a plain Catmull-Rom.** Plain Catmull-Rom
+overshoots at a corner, and the corner that matters here is a hard stop: the tangent is
+already non-zero just before the camera starts moving, so the curve dips backwards
+first. On a slow push that reads as the camera flinching away before it goes. The
+tangents are clamped to remove it, which leaves a genuine arc untouched because the
+clamp only ever bites at a corner.
+
+Detail's tolerance scales with how far the camera actually travelled rather than being
+a fixed number of metres, so the slider means the same thing in a cathedral and in a
+tabletop scan.
 
 **Join** decides the shape of the output: one file per take, or every take end
 to end as one. Joining is a hard cut, deliberately. Crossfades belong in an
