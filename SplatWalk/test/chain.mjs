@@ -1,0 +1,312 @@
+// Tests for the take filter chain.
+//
+//   node test/chain.mjs [path-to-build.html]
+//
+// It pulls the chain straight out of the shipped HTML rather than keeping a
+// copy, so these can never drift from the code that actually runs. Everything
+// between "const sources" and the Take list UI banner is either pure or only
+// touches the page when called, so it evaluates with no DOM in sight.
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SW = path.dirname(HERE);
+const file = process.argv[2] || fs.readdirSync(SW).filter(f => /^SplatWalk_v.*\.html$/.test(f)).sort().pop();
+const html = fs.readFileSync(path.isAbsolute(file) ? file : path.join(SW, file), "utf8");
+console.log("testing " + path.basename(file));
+
+const a = html.indexOf("const sources = [];");
+const b = html.indexOf("// Take list UI");
+if (a < 0 || b < 0) throw new Error("chain markers not found in the build");
+const code = html.slice(a, html.lastIndexOf("// ---", b));
+
+const round4 = (v) => Math.round(v * 1e4) / 1e4;
+const uuid = () => "id" + Math.random().toString(36).slice(2);
+const mod = eval(code + "\n;({ sources, procOf, sampleTake, evalCR, newFx, takeDuration, despike })");
+const { sources, procOf, sampleTake, evalCR, newFx, takeDuration } = mod;
+
+let pass = 0, fail = 0;
+const ok = (name, cond, extra) => {
+  if (cond) { pass++; console.log("  ok   " + name); }
+  else { fail++; console.log("  FAIL " + name + (extra !== undefined ? "   " + extra : "")); }
+};
+const near = (x, y, tol) => Math.abs(x - y) <= tol;
+const touch = (c) => { c._rev = (c._rev || 0) + 1; };
+const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+
+function setSource(samples) {
+  sources.length = 0;
+  sources.push({ id: "s", name: "s", samples });
+}
+function clip(fx) {
+  const c = { id: "c" + Math.random(), srcId: "s", name: "c", enabled: true, fx: { ...newFx(), ...fx } };
+  touch(c);
+  return c;
+}
+
+// Parked 2s, 3s of travel, parked 1.5s. The shape auto-trim is meant to find.
+function flight(opts = {}) {
+  const fps = 60, s = [];
+  let t = 0;
+  const push = (x, y, z, yaw, pitch) =>
+    s.push({ t: round4(t), p: [round4(x), round4(y), round4(z)], yaw: round4(yaw), pitch: round4(pitch), fov: 60 });
+  for (let i = 0; i < 2 * fps; i++, t += 1 / fps) push(0, 1.6, 0, 0, 0);
+  for (let i = 0; i < 3 * fps; i++, t += 1 / fps) {
+    const u = i / (3 * fps);
+    const n = opts.noise ? (Math.sin(i * 7.3) * 0.5 + Math.sin(i * 2.1)) * opts.noise : 0;
+    push(u * 6 + n, 1.6 + Math.sin(u * 6) * 0.1, u * 2, u * 1.2, Math.sin(u * 3) * 0.2);
+  }
+  for (let i = 0; i < 1.5 * fps; i++, t += 1 / fps) push(6, 1.6, 2, 1.2, round4(Math.sin(3) * 0.2));
+  setSource(s);
+  return s;
+}
+
+console.log("\n1. pass-through reproduces the recording");
+{
+  const s = flight();
+  const c = clip({ trimAuto: false });
+  const pr = procOf(c);
+  ok("duration matches", near(pr.outDur, s[s.length - 1].t, 1e-6), pr.outDur);
+  ok("point count matches", pr.pts.length === s.length, pr.pts.length + " vs " + s.length);
+  let worst = 0;
+  for (let i = 0; i < s.length; i += 7) worst = Math.max(worst, dist(sampleTake(c, s[i].t).pos, s[i].p));
+  ok("worst position error under 1mm", worst < 0.001, worst.toExponential(2));
+}
+
+console.log("\n2. auto-trim finds the still head and tail");
+{
+  flight();
+  const pr = procOf(clip({}));
+  ok("in near 2.0s", near(pr.tIn, 2.0, 0.2), pr.tIn.toFixed(3));
+  ok("out near 5.0s", near(pr.tOut, 5.0, 0.2), pr.tOut.toFixed(3));
+  ok("raw duration still reported", near(pr.rawDur, 6.5, 0.05), pr.rawDur.toFixed(3));
+}
+
+console.log("\n3. a take that never stops is left alone");
+{
+  const s = flight().slice(120, 300).map((q, i) => ({ ...q, t: round4(i / 60) }));
+  setSource(s);
+  const pr = procOf(clip({}));
+  ok("keeps the whole thing", near(pr.srcDur, pr.rawDur, 0.02), pr.srcDur.toFixed(2) + " of " + pr.rawDur.toFixed(2));
+}
+
+console.log("\n4. detail drops points without losing the move");
+{
+  flight({ noise: 0.01 });
+  const full = procOf(clip({ trimAuto: false }));
+  const counts = [], devs = [];
+  for (const d of [1, 0.8, 0.6, 0.4, 0.2, 0]) {
+    const pr = procOf(clip({ trimAuto: false, detail: d }));
+    counts.push(pr.pts.length);
+    let worst = 0;
+    for (let i = 0; i < full.pts.length; i += 5) worst = Math.max(worst, dist(evalCR(pr.pts, full.pts[i].t).pos, full.pts[i].p));
+    devs.push(worst);
+  }
+  console.log("     points   : " + counts.join("  ->  "));
+  console.log("     deviation: " + devs.map(v => v.toFixed(3)).join("  ->  "));
+  ok("count never rises as detail falls", counts.every((v, i) => i === 0 || v <= counts[i - 1]));
+  ok("full detail keeps everything", counts[0] === full.pts.length);
+  ok("zero detail is a handful", counts[counts.length - 1] < full.pts.length / 20, counts[counts.length - 1]);
+  ok("deviation bounded even at zero", devs[devs.length - 1] < 1.0, devs[devs.length - 1].toFixed(3));
+}
+
+console.log("\n5. smoothing reaches the curve early in the slider");
+{
+  flight({ noise: 0.02 });
+  const jerk = (c) => {
+    const dt = 1 / 60, N = Math.floor(procOf(c).outDur / dt) - 2;
+    let acc = 0;
+    for (let i = 2; i < N; i++) {
+      acc += Math.abs(sampleTake(c, i * dt).pos[0] - 2 * sampleTake(c, (i - 1) * dt).pos[0] + sampleTake(c, (i - 2) * dt).pos[0]);
+    }
+    return acc / Math.max(1, N);
+  };
+  const raw = jerk(clip({ trimAuto: false, detail: 1 }));
+  const at9 = jerk(clip({ trimAuto: false, detail: 0.9 }));
+  const at5 = jerk(clip({ trimAuto: false, detail: 0.5 }));
+  console.log(`     jerk: 1.00 ${raw.toExponential(2)}   0.90 ${at9.toExponential(2)}   0.50 ${at5.toExponential(2)}`);
+  // The bug this pins: smoothing used to be a no-op until well down the slider,
+  // because the window shared the decimator's squared curve.
+  ok("0.90 already does something", at9 < raw * 0.9, at9.toExponential(2));
+  ok("0.50 does a lot", at5 < raw * 0.5, at5.toExponential(2));
+}
+
+console.log("\n6. a hand slip is removed, a real corner is not");
+{
+  // One bad frame at t=1.5, a genuine direction change at t=3.
+  const fps = 60, s = [];
+  for (let i = 0; i <= 6 * fps; i++) {
+    const t = i / fps;
+    let yaw = t < 3 ? t * 0.35 : 1.05 - (t - 3) * 0.35;
+    let x = t * 0.8;
+    if (i === 90) { yaw += 0.09; x += 0.07; }
+    yaw += Math.sin(i * 5.1) * 0.004;
+    s.push({ t: round4(t), p: [round4(x), 1.6, 0], yaw: round4(yaw), pitch: 0, fov: 60 });
+  }
+  setSource(s);
+  const c = clip({ trimAuto: false, detail: 1 });
+  const peak = (t0, t1) => {
+    const dt = 1 / 60;
+    let worst = 0;
+    for (let t = t0; t < t1; t += dt) {
+      worst = Math.max(worst, Math.abs(sampleTake(c, t + dt).yaw - 2 * sampleTake(c, t).yaw + sampleTake(c, t - dt).yaw));
+    }
+    return worst;
+  };
+  const jolt = peak(1.2, 1.8), corner = peak(2.7, 3.3);
+  console.log(`     jolt ${jolt.toExponential(2)}   corner ${corner.toExponential(2)}   ratio ${(jolt / corner).toFixed(2)}`);
+  ok("the slip is smaller than the real corner", jolt < corner, (jolt / corner).toFixed(2) + "x");
+  ok("the corner survives at full detail", corner > 5e-3, corner.toExponential(2));
+  ok("it was flagged", procOf(c).spikes > 0, procOf(c).spikes + " samples");
+}
+
+console.log("\n7. despiking leaves clean motion alone");
+{
+  const fps = 60, s = [];
+  for (let i = 0; i <= 4 * fps; i++) {
+    const t = i / fps;
+    s.push({ t: round4(t), p: [round4(t * 0.9), 1.6, round4(Math.sin(t) * 2)], yaw: round4(t * 0.4), pitch: 0, fov: 60 });
+  }
+  setSource(s);
+  const pr = procOf(clip({ trimAuto: false, detail: 1 }));
+  ok("nothing flagged on a clean path", pr.spikes === 0, pr.spikes + " flagged");
+  let worst = 0;
+  for (let i = 0; i < s.length; i++) worst = Math.max(worst, dist(pr.pts[i].p, s[i].p));
+  ok("samples come through untouched", worst < 1e-9, worst.toExponential(2));
+}
+
+console.log("\n8. endpoints are never moved");
+{
+  flight({ noise: 0.02 });
+  const full = procOf(clip({ trimAuto: false, detail: 1 })).pts;
+  const first = full[0], last = full[full.length - 1];
+  let wa = 0, wb = 0;
+  for (const d of [0.8, 0.5, 0.2, 0]) {
+    const pts = procOf(clip({ trimAuto: false, detail: d })).pts;
+    wa = Math.max(wa, dist(pts[0].p, first.p));
+    wb = Math.max(wb, dist(pts[pts.length - 1].p, last.p));
+  }
+  ok("first pose untouched", wa < 1e-9, wa);
+  ok("last pose untouched", wb < 1e-9, wb);
+}
+
+console.log("\n9. yaw crossing the seam turns the short way");
+{
+  const s = [];
+  for (let i = 0; i <= 60; i++) {
+    const yaw = Math.PI - 0.3 + (i / 60) * 0.6;
+    s.push({ t: i / 60, p: [0, 1.6, 0], yaw: round4(yaw > Math.PI ? yaw - 2 * Math.PI : yaw), pitch: 0, fov: 60 });
+  }
+  setSource(s);
+  const c = clip({ trimAuto: false });
+  const pr = procOf(c);
+  let maxStep = 0, prev = sampleTake(c, 0).yaw;
+  const start = prev;
+  for (let t = 0; t <= pr.outDur; t += 0.01) {
+    const y = sampleTake(c, t).yaw;
+    maxStep = Math.max(maxStep, Math.abs(y - prev));
+    prev = y;
+  }
+  ok("no jump across the seam", maxStep < 0.1, maxStep.toFixed(4));
+  ok("total travel about 0.6 rad", near(Math.abs(prev - start), 0.6, 0.05));
+}
+
+console.log("\n10. speed retimes without changing the path");
+{
+  flight();
+  const base = procOf(clip({ trimAuto: false })).outDur;
+  let worst = 0;
+  for (const sp of [0.25, 0.5, 2, 4]) {
+    const c1 = clip({ trimAuto: false, speed: 1 });
+    const c2 = clip({ trimAuto: false, speed: sp });
+    const pr = procOf(c2);
+    if (!near(pr.outDur, base / sp, 1e-6)) ok("duration at " + sp + "x", false, pr.outDur);
+    for (let u = 0; u <= 1; u += 0.05) worst = Math.max(worst, dist(sampleTake(c1, u * base).pos, sampleTake(c2, u * pr.outDur).pos));
+  }
+  ok("same path at every speed", worst < 1e-9, worst.toExponential(2));
+}
+
+console.log("\n11. ease keeps the ends and only redistributes time");
+{
+  flight();
+  const c1 = clip({ ease: 1 }), c0 = clip({ ease: 0 });
+  const dur = procOf(c1).outDur;
+  ok("start pose unchanged", dist(sampleTake(c1, 0).pos, sampleTake(c0, 0).pos) < 1e-9);
+  ok("end pose unchanged", dist(sampleTake(c1, dur).pos, sampleTake(c0, dur).pos) < 1e-9);
+  let mono = true, prev = -Infinity;
+  for (let t = 0; t <= dur; t += 0.02) { const x = sampleTake(c1, t).pos[0]; if (x < prev - 1e-6) mono = false; prev = x; }
+  ok("no backtrack", mono);
+  ok("eased start is slower", sampleTake(c1, dur * 0.2).pos[0] < sampleTake(c0, dur * 0.2).pos[0] - 1e-4);
+  ok("eased end is slower", sampleTake(c1, dur * 0.8).pos[0] > sampleTake(c0, dur * 0.8).pos[0] + 1e-4);
+}
+
+console.log("\n12. the curve never overshoots a hard stop");
+{
+  const s = [];
+  let t = 0;
+  const push = (x) => { s.push({ t: round4(t), p: [x, 1.6, 0], yaw: 0, pitch: 0, fov: 60 }); t += 1 / 60; };
+  for (let i = 0; i < 60; i++) push(0);
+  for (let i = 1; i <= 60; i++) push(i / 60 * 4);
+  for (let i = 0; i < 60; i++) push(4);
+  setSource(s);
+  for (const d of [1, 0.6, 0.3]) {
+    const c = clip({ trimAuto: false, detail: d });
+    const pr = procOf(c);
+    let lo = Infinity, hi = -Infinity, back = 0, prev = -Infinity;
+    for (let u = 0; u <= pr.outDur; u += 0.005) {
+      const x = sampleTake(c, u).pos[0];
+      lo = Math.min(lo, x); hi = Math.max(hi, x);
+      if (x < prev - 1e-9) back = Math.max(back, prev - x);
+      prev = x;
+    }
+    ok(`detail ${d}: never dips below the start`, lo > -1e-6, lo.toExponential(2));
+    ok(`detail ${d}: never sails past the end`, hi < 4 + 1e-6, (hi - 4).toExponential(2));
+    ok(`detail ${d}: never travels backwards`, back < 1e-6, back.toExponential(2));
+  }
+}
+
+console.log("\n13. handheld is deterministic and opt-in");
+{
+  flight();
+  const c0 = clip({ trimAuto: false, shake: 0 });
+  const cs = clip({ trimAuto: false, shake: 0.5 });
+  const clean = [], a = [], b = [];
+  for (let t = 0; t < 3; t += 0.1) { clean.push(sampleTake(c0, t).yaw); a.push(sampleTake(cs, t).yaw); }
+  for (let t = 0; t < 3; t += 0.1) b.push(sampleTake(cs, t).yaw);
+  ok("same every time", a.every((v, i) => v === b[i]));
+  ok("it moves something", a.some((v, i) => Math.abs(v - clean[i]) > 1e-4));
+  ok("within a couple of degrees", Math.max(...a.map((v, i) => Math.abs(v - clean[i]))) < 0.05);
+  const off = [];
+  for (let t = 0; t < 3; t += 0.1) off.push(sampleTake(clip({ trimAuto: false, shake: 0 }), t).yaw);
+  ok("zero means truly off", off.every((v, i) => v === clean[i]));
+}
+
+console.log("\n14. nothing produces NaN, anywhere");
+{
+  flight({ noise: 0.03 });
+  let bad = 0, n = 0;
+  for (const d of [1, 0.73, 0.4, 0]) for (const sp of [0.3, 1, 3]) for (const e of [0, 0.5, 1]) for (const sh of [0, 0.7]) {
+    const c = clip({ detail: d, speed: sp, ease: e, shake: sh });
+    const pr = procOf(c);
+    for (let i = 0; i <= 40; i++) {
+      const p = sampleTake(c, (i / 40) * pr.outDur);
+      n++;
+      if (!p || [p.pos[0], p.pos[1], p.pos[2], p.yaw, p.pitch, p.fov].some(v => !isFinite(v))) bad++;
+    }
+  }
+  ok(n + " poses over 72 parameter combinations, all finite", bad === 0, bad + " bad");
+}
+
+console.log("\n15. degenerate takes do not explode");
+{
+  setSource([{ t: 0, p: [1, 2, 3], yaw: 0.5, pitch: 0.1, fov: 60 }]);
+  const c = clip({});
+  ok("single sample returns its pose", sampleTake(c, 0).pos[0] === 1 && sampleTake(c, 99).pos[0] === 1);
+  const orphan = { id: "x", srcId: "nope", name: "x", enabled: true, fx: newFx() };
+  ok("missing recording returns null, not a throw", sampleTake(orphan, 0) === null);
+  ok("and reports zero duration", takeDuration(orphan) === 0);
+}
+
+console.log("\n" + (fail ? "FAILED" : "PASSED") + ": " + pass + " passed, " + fail + " failed\n");
+process.exit(fail ? 1 : 0);

@@ -2108,6 +2108,61 @@ function smoothPts(pts, win) {
   return out;
 }
 
+// A single frame where the hand slipped is an impulse, not a movement, and the
+// mean smoothing below cannot remove one: averaging SPREADS a spike instead of
+// deleting it. The decimator then actively latches onto what is left, because a
+// spike is by definition the point of largest deviation. A median is the one
+// filter that deletes an impulse while leaving a genuine corner exactly where it
+// is, which is the whole distinction that matters here.
+//
+// This is a Hampel filter: inside a short window, a sample is replaced by the
+// median only when it sits further from that median than the neighbourhood's own
+// scatter can explain. Ordinary motion comes through untouched, bit for bit, so
+// Detail at 100% still means the recording as flown.
+const SPIKE_HALF = 3;              // samples each side
+const SPIKE_N = 3.5;               // how many robust deviations counts as a slip
+
+function medianOf(buf, n) {
+  for (let i = 1; i < n; i++) {                      // insertion sort, n is 7
+    const v = buf[i];
+    let j = i - 1;
+    while (j >= 0 && buf[j] > v) { buf[j + 1] = buf[j]; j--; }
+    buf[j + 1] = v;
+  }
+  return buf[n >> 1];
+}
+
+function despike(pts) {
+  const n = pts.length;
+  if (n < 2 * SPIKE_HALF + 1) return pts;
+  const read = [
+    (q) => q.p[0], (q) => q.p[1], (q) => q.p[2],
+    (q) => q.yaw, (q) => q.pitch,
+  ];
+  const write = [
+    (q, v) => q.p[0] = v, (q, v) => q.p[1] = v, (q, v) => q.p[2] = v,
+    (q, v) => q.yaw = v, (q, v) => q.pitch = v,
+  ];
+  const out = pts.map(q => ({ t: q.t, p: q.p.slice(), yaw: q.yaw, pitch: q.pitch, fov: q.fov }));
+  const win = new Float64Array(2 * SPIKE_HALF + 1);
+  const dev = new Float64Array(2 * SPIKE_HALF + 1);
+  let fixed = 0;
+  for (let c = 0; c < read.length; c++) {
+    const get = read[c], set = write[c];
+    for (let i = SPIKE_HALF; i < n - SPIKE_HALF; i++) {
+      for (let k = -SPIKE_HALF; k <= SPIKE_HALF; k++) win[k + SPIKE_HALF] = get(pts[i + k]);
+      const m = medianOf(win, win.length);
+      for (let k = -SPIKE_HALF; k <= SPIKE_HALF; k++) dev[k + SPIKE_HALF] = Math.abs(get(pts[i + k]) - m);
+      // 1.4826 turns a median absolute deviation into a standard-deviation
+      // equivalent for well-behaved data, which is the usual Hampel constant.
+      const scale = 1.4826 * medianOf(dev, dev.length);
+      if (scale > 1e-9 && Math.abs(get(pts[i]) - m) > SPIKE_N * scale) { set(out[i], m); fixed++; }
+    }
+  }
+  out._fixed = fixed;
+  return out;
+}
+
 const MAX_SPAN = 240;              // no single segment may swallow more than this
 function segFits(pts, a, b, tolPos, tolAng) {
   const A = pts[a], B = pts[b], span = B.t - A.t;
@@ -2238,12 +2293,19 @@ function buildProc(clip) {
   for (const q of pts) q.t -= tIn;
   const srcDur = Math.max(0.001, tOut - tIn);
 
+  // Always, and before anything else. A slip of the hand is not a level of
+  // detail, so it is not on a slider.
+  pts = despike(pts);
+  const spikes = pts._fixed || 0;
+
   const d = clamp01(f.detail);
   if (d < 0.999) {
-    // Both strengths rise faster than the slider falls, so the top half stays
-    // gentle and the aggressive end is where it belongs, at the bottom.
+    // Smoothing ramps with the slider; decimation is cubed so it stays out of
+    // the way until the bottom. These used to share one curve, which made the
+    // window 4.5ms at Detail 0.9, i.e. nothing, which in turn left the
+    // decimator fitting raw samples and latching onto every spike in them.
+    pts = smoothPts(pts, (1 - d) * 0.22);
     const k = (1 - d) * (1 - d);
-    pts = smoothPts(pts, k * 0.45);
     // Tolerance is a fraction of how far the camera actually travelled, not a
     // fixed number of metres, so the slider means the same thing in a cathedral
     // and in a tabletop scan. Angles need no such help; a radian is a radian.
@@ -2258,7 +2320,7 @@ function buildProc(clip) {
   }
 
   return { pts, srcDur, outDur: srcDur / clampTo(f.speed, 0.05, 20),
-           tIn, tOut, rawDur, seed: seedOf(clip.id), rev };
+           tIn, tOut, rawDur, spikes, seed: seedOf(clip.id), rev };
 }
 function procOf(clip) {
   if (!clip._proc || clip._proc.rev !== (clip._rev || 0)) clip._proc = buildProc(clip);
