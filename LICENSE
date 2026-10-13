@@ -28,6 +28,9 @@ licenses:
 - three.js (MIT) - vendored in SplatWalk/vendor/, see LICENSE-three.txt
 - Spark (MIT, World Labs Technologies) - vendored in SplatWalk/vendor/,
   see LICENSE-spark.txt
+- mp4-muxer (MIT, Vanilagy) - vendored in SplatWalk/vendor/, see
+  LICENSE-mp4-muxer.txt. Used to write the MP4 container around the frames
+  WebCodecs encodes during a take render.
 - PyQt6 (GPL-3.0 or commercial, Riverbank Computing) - installed by pip at
   runtime, not distributed here
 - OpenCV (Apache-2.0) - installed by pip at runtime, not distributed here

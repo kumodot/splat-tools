@@ -4,7 +4,7 @@ Walk inside Gaussian Splat scenes on a Meta Quest 3 (WebXR) or on the desktop.
 Single HTML file, no build step, no APK. Loads `.ply` / `.spz` / `.splat` / `.ksplat` / `.sog`,
 lets you place several splats in one space, and saves projects in the browser.
 
-Current version: **v0.3.6** (`SplatWalk_v0.3.6.html`). The version is in the file name, the panel header,
+Current version: **v0.4.0** (`SplatWalk_v0.4.0.html`). The version is in the file name, the panel header,
 the About dialog and the in-VR HUD, so you always know which build you are looking at.
 Older builds live in `../archive/SplatWalk/`; `serve.py` always opens the newest one here.
 
@@ -19,7 +19,7 @@ Built with [three.js](https://threejs.org) and [Spark](https://sparkjs.dev) (bot
 
 ```
 SplatWalk/
-  SplatWalk_v0.3.6.html     the app (older builds are in ../archive/SplatWalk/)
+  SplatWalk_v0.4.0.html     the app (older builds are in ../archive/SplatWalk/)
   vendor/                   three.js + Spark (local copies, no CDN)
   splats/                   optional: drop files here and load them by URL (splats/name.spz)
   tools/                    splat_prep: shrink huge PLYs down to headset size (see below)
@@ -30,7 +30,7 @@ SplatWalk/
 
 ## Desktop test
 
-Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.3.6.html`.
+Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.4.0.html`.
 
 - Drag to look, `WASD` move, `Q`/`E` down/up, `Shift` fast, mouse wheel forward/back
 - `+ Add files` or drag-and-drop splat files onto the page
@@ -47,10 +47,10 @@ Pick one:
    Release asset into **Add URL**.
 2. **adb reverse (fastest iteration).** Developer mode on the headset, USB cable, then on the PC:
    `adb reverse tcp:8080 tcp:8080` and run `run_SplatWalk.bat`. In the Quest browser open
-   `http://localhost:8080/SplatWalk_v0.3.6.html`. `localhost` counts as secure, so VR works.
+   `http://localhost:8080/SplatWalk_v0.4.0.html`. `localhost` counts as secure, so VR works.
 3. **Self-signed https on the LAN.** Create a cert once (Git for Windows has openssl):
    `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=splatwalk"`
-   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.3.6.html` on the headset.
+   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.4.0.html` on the headset.
    Accept the certificate warning once. Option 1 makes this one unnecessary in practice.
 
 Put the headset on, press **Enter VR**.
@@ -201,6 +201,48 @@ Takes are numbered per project per day and the counter survives a reload, so pre
 Kitchen_20260912_take01.webm
 Kitchen_20260912_take02.webm
 ```
+
+## Takes: record the move, render it later
+
+**Record** above captures the screen live, which means the machine has to draw
+and encode at the same time. On a machine that cannot keep up, the encoder
+keeps wall-clock time, so a frame that took 300 ms to draw becomes 300 ms of
+video. The result stutters and there is no fixing it afterwards.
+
+Takes solve that by separating the two halves.
+
+**`T` or Record motion** stores only the camera pose, once per drawn frame.
+That costs nothing, so it works on any machine, at any frame rate. Fly the shot
+as badly or as slowly as your hardware forces you to.
+
+**Render queue** then replays that path at a *fixed* timestep and stamps every
+frame with its exact presentation time. Each frame gets as long as it needs to
+draw. A take recorded at a stuttering 17 fps renders out as clean 60 fps,
+because the path is resampled by time, not by frame index.
+
+Measured on a 2-second test: 48 frames, `r_frame_rate=24/1`, `duration=2.000000`,
+with deliberate stalls injected during encoding.
+
+### What you get out of it
+
+| | |
+|---|---|
+| **Fixed output size** | 720p to 4K, plus vertical and square, whatever the window is doing |
+| **MP4, PNG or JPG** | MP4 is H.264 via WebCodecs. Sequences go straight into a folder you pick |
+| **2x supersampling** | Renders at double size and downsamples. Free quality when nothing is real-time |
+| **A size estimate** | Frames, duration and gigabytes are on screen before you click, not after |
+| **Resumable** | Sequence frames are written as they go, and a re-run skips what is already on disk |
+
+Takes are listed in the order they render, with a tickbox each. Click the name
+to rename, the triangle to preview it in the viewport, the arrow to move it up.
+They are saved with the project like everything else.
+
+**Join** decides the shape of the output: one file per take, or every take end
+to end as one. Joining is a hard cut, deliberately. Crossfades belong in an
+editor, and you already have one.
+
+Nothing is rendered at the window's resolution, so the `1267x953` problem that
+live capture has does not exist here.
 
 ## Projects
 
