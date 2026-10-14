@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.6.4</title>
+<title>SplatWalk v0.6.5</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -100,10 +100,10 @@
   #tlBlocks { position: absolute; inset: 0; }
   /* A block is an instance of a take, so it is drawn as a thing you can grab
      and trim, not as a row in a list. */
-  .tlblk { position: absolute; top: 4px; bottom: 4px; border-radius: 5px; background: var(--sel);
+  .tlblk { position: absolute; top: 4px; bottom: 4px; border-radius: 5px;
     border: 1px solid var(--line); overflow: hidden; cursor: grab; user-select: none;
     min-width: 8px; }
-  .tlblk.sel { border-color: var(--accent); }
+  .tlblk.sel { border-color: var(--text); box-shadow: 0 0 0 1px var(--text) inset; }
   .tlblk.dragging { opacity: 0.7; cursor: grabbing; }
   .tlblk .nm { position: absolute; left: 9px; right: 9px; top: 5px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; pointer-events: none; color: var(--text); }
@@ -411,6 +411,10 @@
   .reordering { opacity: 0.55; }
   .tkicon { width: 11px; height: 11px; display: block; fill: currentColor; }
   .take .tbtn.clap { display: flex; align-items: center; padding: 0 4px; }
+  .take .dot { flex: 0 0 8px; height: 8px; border-radius: 2px; }
+  .swatches { display: flex; gap: 3px; flex: 1; }
+  .sw { flex: 1; height: 15px; border-radius: 3px; border: 1px solid transparent; padding: 0; }
+  .sw.on { border-color: var(--text); }
   .take .num { flex: 0 0 16px; color: var(--muted); font-size: 11px; text-align: right; }
   .take .tname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     cursor: text; padding: 2px 4px; border-radius: 4px; }
@@ -494,7 +498,7 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.6.4</span>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.6.5</span>
   <span class="sep"></span>
   <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
   <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
@@ -547,6 +551,7 @@
     <h2>Takes</h2>
     <div class="row">
       <button class="small" id="motionRec" title="Record the camera motion as you fly (T)"><span id="motionDot"></span>Motion record</button>
+      <button class="small" id="takeToTl" title="Send the selected take to the timeline, at the playhead if it fits">+ Timeline</button>
       <span class="hint" id="motionHint" style="flex:1"></span>
     </div>
     <div id="takeList"></div>
@@ -633,6 +638,8 @@
     <button class="small" id="tlNewEdit" title="Create an edit, then drop takes into it">+ Edit</button>
     <button class="small" id="tlRenameEdit" title="Rename this edit">Rename</button>
     <button class="small warn" id="tlDelEdit" title="Delete this edit. The takes in it are untouched.">Delete</button>
+    <span class="tlrule"></span>
+    <button class="small" id="tlRazor" title="Cut the block under the playhead in two (C)">Razor</button>
     <span id="tlActs">
       <span class="tlrule"></span>
       <span class="hint" id="tlHint"></span>
@@ -764,7 +771,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.6.4</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.6.5</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -792,8 +799,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.6.4";
-const APP_BUILT = "2026-10-14 04:24 UTC";
+const APP_VERSION = "0.6.5";
+const APP_BUILT = "2026-10-14 04:40 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -802,7 +809,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.6.4, so a reload could not tell you whether you
+// changes all shipped as v0.6.5, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1299,7 +1306,8 @@ function projectToJson() {
     start: state.start,
     shot: { points: shot.points, duration: shot.duration, loop: shot.loop },
     sources: sources.map(s => ({ id: s.id, name: s.name, samples: s.samples })),
-    takes: takes.map(t => ({ id: t.id, srcId: t.srcId, name: t.name, enabled: t.enabled, fx: t.fx })),
+    takes: takes.map(t => ({ id: t.id, srcId: t.srcId, name: t.name, enabled: t.enabled,
+                             color: t.color, fx: t.fx })),
     edits: edits.map(e => ({ id: e.id, name: e.name,
       blocks: e.blocks.map(b => ({ id: b.id, takeId: b.takeId, at: b.at, tIn: b.tIn, tOut: b.tOut })) })),
     items: state.items.map(i => ({
@@ -1354,15 +1362,17 @@ async function loadProject(name) {
     if (t.srcId) {
       if (sources.some(s => s.id === t.srcId)) {
         takes.push({ id: t.id || uuid(), srcId: t.srcId, name: t.name || "take",
-                     enabled: t.enabled !== false, fx: { ...newFx(), ...(t.fx || {}) } });
+                     enabled: t.enabled !== false, color: t.color || nextColor(),
+                     fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.6.4 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.6.5 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
       takes.push({ id: t.id || uuid(), srcId: src.id, name: t.name || "take",
-                   enabled: t.enabled !== false, fx: { ...newFx(), trimAuto: false } });
+                   enabled: t.enabled !== false, color: t.color || nextColor(),
+                   fx: { ...newFx(), trimAuto: false } });
     }
   }
   edits.length = 0; editSeq = 0;
@@ -1922,6 +1932,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyR") $("shotRecord").click();
   if (e.code === "KeyO") { cine.mode = "orbit"; setOrbitTargetFromView(); }
   if (e.code === "KeyM") toggleCursor();
+  if (e.code === "KeyC") doRazor();
   if (e.code === "KeyT") motionRec ? stopMotionRec() : startMotionRec();
   // Panel visibility on the number row. Recording hides the whole interface, so
   // Escape is the way back out of anything: it stops the take and restores the UI.
@@ -2792,7 +2803,20 @@ const clampTo = (v, a, b) => v < a ? a : v > b ? b : v;
 
 const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0,
                        shake: 0, cut: [], reverse: false, timing: "recorded" });
-const CUT_EPS = 0.012;              // how near a stored time must be to match a point
+const CUT_EPS = 0.012;
+
+// Eight hues that stay apart from each other and stay readable on the dark
+// strip. A take carries its colour so a block, a row and a split half are all
+// identifiable as the same thing without reading a word.
+const TAKE_COLORS = ["#3ecf8e", "#4aa3f0", "#c678dd", "#e5a04c",
+                     "#e06c75", "#56b6c2", "#d19a66", "#a3be8c"];
+let colorSeq = 0;
+const nextColor = () => TAKE_COLORS[colorSeq++ % TAKE_COLORS.length];
+const takeColor = (t) => (t && t.color) || TAKE_COLORS[0];
+function hexRgba(hex, a) {
+  const n = parseInt(String(hex).slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}              // how near a stored time must be to match a point
 const srcOf = (clip) => sources.find(s => s.id === clip.srcId);
 function fxOf(clip) { if (!clip.fx) clip.fx = newFx(); return clip.fx; }
 
@@ -2815,7 +2839,7 @@ function stopMotionRec() {
   motionRec = null;
   document.body.classList.remove("motionrec");
   $("motionRec").lastChild.textContent = "Record motion";
-  $("tpRec").lastChild.textContent = "Record";
+  $("tpRec").lastChild.textContent = "Motion record";
   if (!rec || rec.samples.length < 2) {
     setStatus("Take discarded, it was too short to render.", true);
     updateTakeUi();
@@ -2825,7 +2849,7 @@ function stopMotionRec() {
   takeSeq++;
   const src = { id: uuid(), name, samples: rec.samples };
   sources.push(src);
-  const clip = { id: uuid(), srcId: src.id, name, enabled: true, fx: newFx() };
+  const clip = { id: uuid(), srcId: src.id, name, enabled: true, color: nextColor(), fx: newFx() };
   takes.push(clip);
   tlTarget = "take:" + clip.id;     // what you just shot is what you want to look at
   markDirty();
@@ -3337,6 +3361,34 @@ function sampleEdit(ed, time) {
   return hold ? sampleTake(hold.s.take, hold.s.out) : sampleTake(l[0].take, l[0].in);
 }
 
+// The transport can only be driving one thing, so when you are looking at a
+// take there is no "current" edit. Sending a take to the timeline still has to
+// work, so the last edit you touched is remembered separately, and if there
+// are none at all one is made rather than refusing.
+let activeEditId = null;
+function targetEdit(create) {
+  const ed = currentEdit() || editById(activeEditId) || (edits.length === 1 ? edits[0] : null);
+  if (ed) { activeEditId = ed.id; return ed; }
+  if (!create) return null;
+  const made = newEdit();
+  activeEditId = made.id;
+  return made;
+}
+
+// Drop it under the playhead when there is room, and when there is not, say so
+// and put it at the end rather than doing nothing. Refusing in silence was the
+// worst of the three options.
+function placeTake(ed, take) {
+  const dur = takeDuration(take);
+  const onThisEdit = currentEdit() === ed;
+  const free = (a) => !editLayout(ed).some(s => s.t0 < a + dur - 1e-6 && s.t0 + s.dur > a + 1e-6);
+  const head = onThisEdit ? clock.t : -1;
+  const atHead = head >= 0 && dur > 0 && free(head);
+  const at = atHead ? head : editDuration(ed);
+  const b = addBlock(ed, take, at);
+  return { b, at, atHead };
+}
+
 function newEdit(name) {
   const ed = { id: uuid(), name: name || `Edit ${String(++editSeq).padStart(2, "0")}`, blocks: [] };
   edits.push(ed);
@@ -3387,6 +3439,12 @@ function takeCard(clip) {
     ${fxSlider("Speed", "speed", Math.log2(f.speed), speedTxt(f, pr), "Retime the whole clip")}
     ${fxSlider("Ease", "ease", f.ease, pctTxt(f.ease), "Ease in and out of the move")}
     ${fxSlider("Handheld", "shake", f.shake, pctTxt(f.shake), "Add a held-camera wobble")}
+    <div class="fxrow">
+      <label title="Colours the take's blocks on the timeline, so two halves of one take still read as one take.">Colour</label>
+      <span class="swatches">${TAKE_COLORS.map(c =>
+        `<button class="sw ${takeColor(clip) === c ? "on" : ""}" data-tact="color" data-col="${c}"
+                 style="background:${c}" title="${c}"></button>`).join("")}</span>
+    </div>
     <div class="fxrow end">
       <label class="fxchk" title="Play the move backwards. The recording is untouched."><input type="checkbox" data-tact="reverse" ${f.reverse ? "checked" : ""}> Reverse</label>
       <span style="flex:1"></span>
@@ -3407,6 +3465,7 @@ function updateTakeUi() {
         <div class="take ${takePreview && takePreview.take === t ? "playing" : ""}">
           <span class="rowgrip" title="Drag to reorder"><svg viewBox="0 0 6 12" aria-hidden="true"><circle cx="1.5" cy="3" r="0.9"/><circle cx="4.5" cy="3" r="0.9"/><circle cx="1.5" cy="6" r="0.9"/><circle cx="4.5" cy="6" r="0.9"/><circle cx="1.5" cy="9" r="0.9"/><circle cx="4.5" cy="9" r="0.9"/></svg></span>
           <span class="num">${i + 1}</span>
+          <span class="dot" style="background:${takeColor(t)}"></span>
           <span class="tname" data-tact="pick" draggable="true" title="Click to load it. Drag it onto the timeline.">${esc(t.name)}</span>
           <span class="tinfo" data-tinfo>${takeDuration(t).toFixed(1)}s</span>
           <button class="tbtn" data-tact="play" title="Preview in the viewport">&#9205;</button>
@@ -3513,14 +3572,7 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
   const pair = clipFromEvent(e), take = pair[0];
   if (!take) return;
   const act = e.target.dataset.tact;
-  if (act === "toedit") {
-    const ed = currentEdit();
-    if (!ed) { setStatus("Select or create an edit first, with + Edit on the timeline.", true); return; }
-    addBlock(ed, take);
-    tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
-    setStatus(`"${take.name}" added to "${ed.name}".`);
-    return;
-  }
+  if (act === "toedit") { sendToTimeline(take); return; }
   if (act === "pick") {
     tlTarget = "take:" + take.id;
     propsFocus = "clip";
@@ -3541,7 +3593,7 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
   if (act === "dup") {
     const i = takes.indexOf(take);
     takes.splice(i + 1, 0, { id: uuid(), srcId: take.srcId, name: take.name + " copy",
-                             enabled: take.enabled, fx: { ...fxOf(take) } });
+                             enabled: take.enabled, color: nextColor(), fx: { ...fxOf(take) } });
     markDirty(); updateTakeUi();
     setStatus("Clip duplicated. It shares the same recording, so trim it however you like.");
     return;
@@ -3553,6 +3605,11 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
     return;
   }
   if (act === "reverse") { fxOf(take).reverse = e.target.checked; fxTouched(take); markDirty(); updateTakeUi(); return; }
+  if (act === "color") {
+    take.color = e.target.dataset.col;
+    tlSig = ""; markDirty(); updateTakeUi(); renderTimeline();
+    return;
+  }
   if (act === "fxreset") { take.fx = newFx(); fxTouched(take); markDirty(); updateTakeUi(); return; }
   if (act === "towp") { takeToWaypoints(take); return; }
   if (act === "del") {
@@ -3579,6 +3636,23 @@ listReorder(itemsEl, ".item", "data-id", (ids) => {
   state.items = next;
   markDirty(); renderItems();
 });
+
+function sendToTimeline(take) {
+  if (!take) { setStatus("Pick a take first.", true); return; }
+  const ed = targetEdit(true);
+  const r = placeTake(ed, take);
+  tlSel = r.b.id; tlSig = "";
+  markDirty(); updateTakeUi(); renderTimeline(); renderShotStrip();
+  if (r.atHead) {
+    setStatus(`"${take.name}" added to "${ed.name}" at the playhead.`);
+  } else {
+    // Put the playhead where the block actually landed, so the next one goes
+    // after it and you are looking at what you just did.
+    if (currentEdit() === ed) seekTo(r.at);
+    setStatus(`"${take.name}" did not fit under the playhead, so it went to the end of "${ed.name}" at ${fmtClock(r.at)}.`);
+  }
+}
+$("takeToTl").onclick = () => sendToTimeline(currentTake());
 
 // Dragging the name onto the timeline is the other way in, and the one that
 // was asked for. The drag starts on the name rather than the whole row so it
@@ -3611,7 +3685,7 @@ function waypointsToTake() {
   sources.push(src);
   // Ease on by default, because that fixed smoothstep is what the waypoint
   // preview always applied and what these stops are expected to feel like.
-  const clip = { id: uuid(), srcId: src.id, name, enabled: true,
+  const clip = { id: uuid(), srcId: src.id, name, enabled: true, color: nextColor(),
                  fx: { ...newFx(), trimAuto: false, timing: "linear", ease: 1 } };
   takes.push(clip);
   tlTarget = "take:" + clip.id;
@@ -3762,6 +3836,7 @@ $("tpScrub").oninput = (e) => {
 // press play to find out where it begins.
 $("tlTarget").onchange = (e) => {
   tlTarget = e.target.value;
+  if (currentEdit()) activeEditId = currentEdit().id;
   propsFocus = "clip";
   updateTakeUi();
   updateTransport();
@@ -3861,6 +3936,8 @@ function renderTimeline() {
   const show = !!ed && l.length > 0;
   $("tlRenameEdit").disabled = !ed;
   $("tlDelEdit").disabled = !ed;
+  $("tlRazor").disabled = !ed;
+  $("takeToTl").disabled = !currentTake();
   // Duplicate / Reset trim / Remove act on a block. With no block picked they
   // are three verbs with no object, which is what they looked like.
   const onBlock = !!(ed && l.some(s => s.b.id === tlSel));
@@ -3877,7 +3954,8 @@ function renderTimeline() {
   const span = tlSpan(ed);
   $("tlBlocks").innerHTML = l.map(s => `
     <div class="tlblk ${tlSel === s.b.id ? "sel" : ""}" data-bid="${s.b.id}"
-         style="left:${(100 * s.t0 / span).toFixed(4)}%;width:${(100 * s.dur / span).toFixed(4)}%"
+         style="left:${(100 * s.t0 / span).toFixed(4)}%;width:${(100 * s.dur / span).toFixed(4)}%;
+                background:${hexRgba(takeColor(s.take), 0.22)};border-left:3px solid ${takeColor(s.take)}"
          title="${esc(s.take.name)} · drag to move it in time, drag an edge to trim"
          draggable="false">
       <div class="nm">${esc(s.take.name)}</div>
@@ -3909,6 +3987,7 @@ function tlPlayheadAt(t, dur) {
 // reading.
 $("tlNewEdit").onclick = () => {
   const ed = newEdit();
+  activeEditId = ed.id;
   tlTarget = "edit:" + ed.id;
   tlSel = null; tlSig = "";
   markDirty(); updateTakeUi(); renderShotStrip();
@@ -4020,6 +4099,32 @@ $("tlBlocks").addEventListener("pointermove", (e) => {
     layoutTlBlocks();
   }
 });
+
+// Split a block in two at the playhead. Both halves point at the same take, so
+// they keep its colour and read as two pieces of one thing, which is the whole
+// reason the colour exists.
+function razorAt(ed, t) {
+  if (!ed) return null;
+  const hit = editLayout(ed).find(s => t > s.t0 + 1e-3 && t < s.t0 + s.dur - 1e-3);
+  if (!hit) return null;
+  const cut = hit.in + (t - hit.t0);
+  const right = { id: uuid(), takeId: hit.b.takeId, at: t, tIn: cut, tOut: hit.out };
+  hit.b.tIn = hit.in;             // was possibly null, meaning "all of it"
+  hit.b.tOut = cut;
+  ed.blocks.push(right);
+  return right;
+}
+
+function doRazor() {
+  const ed = currentEdit();
+  if (!ed) { setStatus("The timeline has to be showing an edit to cut one.", true); return; }
+  const right = razorAt(ed, clock.t);
+  if (!right) { setStatus("Put the playhead inside a block to cut it.", true); return; }
+  tlSel = right.id; tlSig = "";
+  markDirty(); updateTransport(); renderShotStrip();
+  setStatus(`Cut at ${fmtClock(clock.t)}. Both halves are the same take, so they keep its colour.`);
+}
+$("tlRazor").onclick = doRazor;
 
 // One track, so two blocks cannot be in the same place. Dropping one onto
 // another slides it to the nearer free side rather than hiding it, which is
