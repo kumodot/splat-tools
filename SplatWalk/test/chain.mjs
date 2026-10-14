@@ -319,6 +319,35 @@ console.log("\n13b. cutting points by hand");
   ok("still samples cleanly end to end", bad === 0, bad + " bad");
 }
 
+console.log("\n13c. reverse");
+{
+  flight();
+  const fwd = clip({ trimAuto: false });
+  const rev = clip({ trimAuto: false, reverse: true });
+  const dur = procOf(fwd).outDur;
+  ok("same length", Math.abs(procOf(rev).outDur - dur) < 1e-9);
+  ok("starts where the other ends", dist(sampleTake(rev, 0).pos, sampleTake(fwd, dur).pos) < 1e-9);
+  ok("ends where the other starts", dist(sampleTake(rev, dur).pos, sampleTake(fwd, 0).pos) < 1e-9);
+  let worst = 0;
+  for (let u = 0; u <= 1; u += 0.05) {
+    worst = Math.max(worst, dist(sampleTake(rev, u * dur).pos, sampleTake(fwd, (1 - u) * dur).pos));
+  }
+  ok("mirrors the whole path", worst < 1e-9, worst.toExponential(2));
+
+  // It is a read direction, not an edit: turning it off restores the original
+  // exactly, and it composes with the rest of the chain rather than fighting it.
+  const back = clip({ trimAuto: false, reverse: false });
+  ok("toggling off is lossless", dist(sampleTake(back, 0).pos, sampleTake(fwd, 0).pos) < 1e-9);
+  const both = clip({ trimAuto: false, reverse: true, detail: 0.4, speed: 2, ease: 1 });
+  const pr = procOf(both);
+  let bad = 0;
+  for (let i = 0; i <= 40; i++) {
+    const p = sampleTake(both, (i / 40) * pr.outDur);
+    if (!p || [p.pos[0], p.pos[1], p.pos[2], p.yaw].some(v => !isFinite(v))) bad++;
+  }
+  ok("composes with detail, speed and ease", bad === 0, bad + " bad");
+}
+
 console.log("\n14. nothing produces NaN, anywhere");
 {
   flight({ noise: 0.03 });

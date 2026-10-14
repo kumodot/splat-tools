@@ -262,6 +262,12 @@
   #shotStrip .wp .go { background: none; border: none; color: var(--text); padding: 3px 9px;
     font: 600 12px/1 system-ui; cursor: pointer; }
   #shotStrip .wp .go:hover { color: var(--accent); }
+  /* Passing a waypoint has to show somewhere you are already looking, and
+     during playback that is the strip, not the markers out in the scene. */
+  #shotStrip .wp.passed { border-color: var(--accent2); }
+  #shotStrip .wp.passed .go { color: var(--accent2); }
+  #shotStrip .wp.at { background: var(--accent2); border-color: var(--accent2); }
+  #shotStrip .wp.at .go { color: #0b0d12; font-weight: 700; }
   #shotStrip .wp .del { background: none; border: none; border-left: 1px solid var(--line);
     color: var(--muted); padding: 3px 7px; font: 11px/1 system-ui; cursor: pointer; }
   #shotStrip .wp .del:hover { color: var(--danger); }
@@ -292,8 +298,14 @@
   .take .twist:hover { color: var(--accent); }
   .take .tbtn.auto { font: 10px/1 system-ui; padding: 2px 4px; border: 1px solid var(--line); border-radius: 3px; }
   .take .tbtn.auto.on { color: var(--accent); border-color: var(--accent); }
-  .takefx { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 7px 16px; }
-  .fxrow { display: flex; align-items: center; gap: 6px; }
+  .takefx { display: flex; flex-direction: column; gap: 5px; padding: 4px 0 7px 16px;
+    min-width: 0; }
+  /* The trim row carries two numbers, a separator, a readout and a button, and
+     at the column's default width that is more than fits. Wrapping drops the
+     tail onto a second line instead of pushing a horizontal scrollbar across
+     the whole panel, which is the one outcome nobody wants in a properties
+     pane. */
+  .fxrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
   .fxrow > label { flex: 0 0 54px; color: var(--muted); font-size: 11px; cursor: help; }
   .fxrow input[type=range] { flex: 1; min-width: 0; }
   .fxrow .fxnum { flex: 1 1 42px; min-width: 0; }
@@ -301,6 +313,9 @@
   .fxrow .fxval { flex: 0 0 88px; color: var(--muted); font-size: 11px;
     font-variant-numeric: tabular-nums; text-align: right; }
   .fxrow.end { justify-content: flex-end; gap: 6px; margin-top: 1px; }
+  .fxchk { flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
+    color: var(--muted); font-size: 11px; cursor: pointer; }
+  .fxchk input { margin: 0; }
   /* Bake overlay. Rendering takes over the viewport, so it says so loudly. */
   #bake { position: fixed; inset: 0; z-index: 60; display: none; background: rgba(8,10,14,0.92);
     backdrop-filter: blur(3px); align-items: center; justify-content: center; }
@@ -627,7 +642,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.5.3";
-const APP_BUILT = "2026-10-14 02:28 UTC";
+const APP_BUILT = "2026-10-14 02:34 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -1988,7 +2003,7 @@ function updateOrbit(dt) {
 // A shot is a list of camera stops. Playback runs a Catmull-Rom curve through the
 // positions and eases the angles alongside, so three rough stops become one long
 // continuous move.
-const shot = { points: [], playing: false, t: 0, duration: 12, loop: false, curve: null, yaws: [], pitches: [] };
+const shot = { points: [], playing: false, t: 0, duration: 12, loop: false, curve: null, yaws: [], pitches: [], at: -1 };
 
 function addWaypoint() {
   shot.points.push({ pos: cam.pos.toArray().map(round4), yaw: round4(cam.yaw), pitch: round4(cam.pitch) });
@@ -2066,6 +2081,20 @@ function rebuildShotGizmo() {
   }
 }
 
+// The chips at the top of the screen, lit as the playhead goes past and marked
+// where you last jumped to. Classes are toggled on the existing nodes rather
+// than re-rendering the strip, because this runs every frame.
+function updateShotStripState() {
+  const el = $("shotStrip");
+  if (!el.classList.contains("on")) return;
+  const n = shot.points.length;
+  const head = shot.playing && shot.duration > 0 && n > 1 ? (shot.t / shot.duration) * (n - 1) : -1;
+  el.querySelectorAll(".wp").forEach((w, i) => {
+    w.classList.toggle("passed", head >= 0 && i <= head + 0.001);
+    w.classList.toggle("at", head >= 0 ? Math.round(head) === i : shot.at === i);
+  });
+}
+
 function updateShotGizmo() {
   // Visible during playback too, now that passing one means something: the
   // markers behind the playhead light up, so the shot reads as a thing being
@@ -2080,7 +2109,7 @@ function updateShotGizmo() {
   for (const c of shotGizmo.children) {
     if (!c.isSprite) continue;
     const past = reached >= 0 && c.userData.wp <= reached + 0.001;
-    c.material.color.setHex(past ? 0x5ee0c1 : 0xffffff);
+    c.material.color.setHex(past ? 0xe4572e : 0xffffff);
     c.material.opacity = reached >= 0 && !past ? 0.45 : 1;
   }
 }
@@ -2185,6 +2214,7 @@ function clickTakePoint(clientX, clientY) {
 function goToWaypoint(i) {
   const p = shot.points[i];
   if (!p) return;
+  shot.at = i;
   if (shot.playing) stopShot();
   cine.mode = "free";
   cam.pos.fromArray(p.pos); cam.tPos.fromArray(p.pos);
@@ -2419,7 +2449,7 @@ const openTakes = new Set();       // which clips have their filter panel showin
 const clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
 const clampTo = (v, a, b) => v < a ? a : v > b ? b : v;
 
-const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0, shake: 0, cut: [] });
+const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0, shake: 0, cut: [], reverse: false });
 const CUT_EPS = 0.012;              // how near a stored time must be to match a point
 const srcOf = (clip) => sources.find(s => s.id === clip.srcId);
 function fxOf(clip) { if (!clip.fx) clip.fx = newFx(); return clip.fx; }
@@ -2830,7 +2860,11 @@ function sampleTake(clip, time) {
   const pr = procOf(clip);
   if (!pr.pts.length) return null;
   const f = fxOf(clip);
-  const u = pr.outDur > 1e-9 ? clamp01(time / pr.outDur) : 0;
+  let u = pr.outDur > 1e-9 ? clamp01(time / pr.outDur) : 0;
+  // Reversing output time rather than the point list: the curve, the cuts and
+  // the easing all stay exactly as they are and simply get read from the other
+  // end, which is also why it costs nothing to toggle.
+  if (f.reverse) u = 1 - u;
   const e = clamp01(f.ease);
   const ue = e > 0 ? u + (u * u * (3 - 2 * u) - u) * e : u;   // blend linear -> smoothstep
   const pose = evalCR(pr.pts, ue * pr.srcDur);
@@ -2887,6 +2921,8 @@ function takeCard(clip) {
     ${fxSlider("Ease", "ease", f.ease, pctTxt(f.ease), "Ease in and out of the move")}
     ${fxSlider("Handheld", "shake", f.shake, pctTxt(f.shake), "Add a held-camera wobble")}
     <div class="fxrow end">
+      <label class="fxchk" title="Play the move backwards. The recording is untouched."><input type="checkbox" data-tact="reverse" ${f.reverse ? "checked" : ""}> Reverse</label>
+      <span style="flex:1"></span>
       <button class="small" data-tact="fxreset">Reset filters</button>
       <button class="small" data-tact="towp" title="Turn the filtered path into editable waypoints">To waypoints</button>
     </div>
@@ -2997,6 +3033,7 @@ $("takeList").addEventListener("click", (e) => {
     fxTouched(take); markDirty(); updateTakeUi();
     return;
   }
+  if (act === "reverse") { fxOf(take).reverse = e.target.checked; fxTouched(take); markDirty(); updateTakeUi(); return; }
   if (act === "fxreset") { take.fx = newFx(); fxTouched(take); markDirty(); updateTakeUi(); return; }
   if (act === "towp") { takeToWaypoints(take); return; }
   if (act === "up") {
@@ -3614,6 +3651,7 @@ renderer.setAnimationLoop((t) => {
     updateOrbitMarker();
   }
   updateShotGizmo();     // also runs in XR, where it hides the gizmo
+  updateShotStripState();
   updateTakeGizmo();
   updateTransportClock();
   renderer.render(scene, camera);
