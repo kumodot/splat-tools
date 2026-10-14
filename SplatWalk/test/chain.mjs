@@ -348,6 +348,80 @@ console.log("\n13c. reverse");
   ok("composes with detail, speed and ease", bad === 0, bad + " bad");
 }
 
+console.log("\n13d. timing: as recorded vs linear");
+{
+  // A straight dash: the first half of the recording crawls through one metre,
+  // the second half bolts through nine. Same path, wildly uneven pacing.
+  const fps = 60, s = [];
+  for (let i = 0; i < 120; i++) {
+    const x = i < 60 ? (i / 60) * 1 : 1 + ((i - 60) / 60) * 9;
+    s.push({ t: round4(i / fps), p: [round4(x), 1.6, 0], yaw: 0, pitch: 0, fov: 60 });
+  }
+  setSource(s);
+
+  const rec = clip({ trimAuto: false, timing: "recorded" });
+  const lin = clip({ trimAuto: false, timing: "linear" });
+  const base = clip({ trimAuto: false });
+  const dur = procOf(rec).outDur;
+
+  ok("linear keeps the clip length", near(procOf(lin).outDur, dur, 1e-9));
+
+  // "As recorded" is the default and has to be a true no-op.
+  let drift = 0;
+  for (let i = 0; i <= 40; i++) {
+    const u = (i / 40) * dur;
+    drift = Math.max(drift, dist(sampleTake(rec, u).pos, sampleTake(base, u).pos));
+  }
+  ok("as recorded changes nothing", drift < 1e-9, drift.toExponential(2));
+
+  const spread = (c) => {
+    // sampleTake hands back a reused pose object, so hold on to a copy.
+    let lo = Infinity, hi = 0, prev = sampleTake(c, 0).pos.slice();
+    for (let i = 1; i <= 60; i++) {
+      const p = sampleTake(c, (i / 60) * dur).pos.slice();
+      const d = dist(p, prev);
+      prev = p;
+      if (d < lo) lo = d;
+      if (d > hi) hi = d;
+    }
+    return hi / Math.max(lo, 1e-9);
+  };
+  const rRec = spread(rec), rLin = spread(lin);
+  console.log("     speed spread: recorded " + rRec.toFixed(2) + "x   linear " + rLin.toFixed(2) + "x");
+  ok("the recording really is uneven", rRec > 4, rRec.toFixed(2));
+  ok("linear covers equal ground per second", rLin < 1.5, rLin.toFixed(2));
+  ok("and it is an improvement", rLin < rRec / 3);
+
+  // Endpoints are the one thing retiming must not touch.
+  ok("starts in the same place", dist(sampleTake(lin, 0).pos, s[0].p) < 1e-6);
+  ok("ends in the same place", dist(sampleTake(lin, dur).pos, s[s.length - 1].p) < 1e-6);
+
+  // A take that only turns on the spot covers no ground at all, so a retime by
+  // position alone would divide by zero.
+  const pan = [];
+  for (let i = 0; i < 120; i++) {
+    const u = i < 60 ? (i / 60) * 0.1 : 0.1 + ((i - 60) / 60) * 0.9;
+    pan.push({ t: round4(i / fps), p: [0, 1.6, 0], yaw: round4(u), pitch: 0, fov: 60 });
+  }
+  setSource(pan);
+  const panLin = clip({ trimAuto: false, timing: "linear" });
+  const pd = procOf(panLin).outDur;
+  let bad = 0;
+  for (let i = 0; i <= 40; i++) {
+    const p = sampleTake(panLin, (i / 40) * pd);
+    if (!p || !isFinite(p.yaw) || !isFinite(p.pos[0])) bad++;
+  }
+  ok("a pan-only take still retimes", bad === 0, bad + " bad");
+  ok("and spreads the turn evenly", near(sampleTake(panLin, pd / 2).yaw, 0.5, 0.08),
+     sampleTake(panLin, pd / 2).yaw);
+
+  // Nothing moved at all: fall back to even spacing rather than NaN.
+  setSource(Array.from({ length: 30 }, (_, i) => ({ t: round4(i / fps), p: [0, 1.6, 0], yaw: 0, pitch: 0, fov: 60 })));
+  const still = clip({ trimAuto: false, timing: "linear" });
+  const sp = sampleTake(still, procOf(still).outDur / 2);
+  ok("a frozen take does not divide by zero", sp && isFinite(sp.pos[0]) && isFinite(sp.yaw));
+}
+
 console.log("\n14. nothing produces NaN, anywhere");
 {
   flight({ noise: 0.03 });

@@ -474,6 +474,7 @@
     <div class="row">
       <button class="small" id="shotAdd" title="K">+ Waypoint</button>
       <span class="hint" id="shotCount" style="flex:1">no shot yet</span>
+      <button class="small" id="wpToTake" title="Turn these waypoints into a take, with all the same filters. They stay here afterwards.">Save as take</button>
       <button class="small warn" id="shotClear">Clear</button>
     </div>
     <div class="row">
@@ -683,7 +684,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.5.8";
-const APP_BUILT = "2026-10-14 02:54 UTC";
+const APP_BUILT = "2026-10-14 03:05 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -2507,7 +2508,8 @@ const openTakes = new Set();       // which clips have their filter panel showin
 const clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
 const clampTo = (v, a, b) => v < a ? a : v > b ? b : v;
 
-const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0, shake: 0, cut: [], reverse: false });
+const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0,
+                       shake: 0, cut: [], reverse: false, timing: "recorded" });
 const CUT_EPS = 0.012;              // how near a stored time must be to match a point
 const srcOf = (clip) => sources.find(s => s.id === clip.srcId);
 function fxOf(clip) { if (!clip.fx) clip.fx = newFx(); return clip.fx; }
@@ -2718,6 +2720,28 @@ function despike(pts) {
   return out;
 }
 
+// How far the camera moves between two keys, with rotation folded in at a rate
+// that makes a brisk pan comparable to a walk. A take that only turns on the
+// spot covers no ground at all by position, and would otherwise divide by zero.
+function travelBetween(a, b) {
+  const d = Math.hypot(b.p[0] - a.p[0], b.p[1] - a.p[1], b.p[2] - a.p[2]);
+  return d + (Math.abs(b.yaw - a.yaw) + Math.abs(b.pitch - a.pitch)) * 0.5;
+}
+
+// Rewrite the key times so the camera covers equal ground per second, instead
+// of repeating whatever the hand happened to do. "Linear" has to mean constant
+// SPEED and not equal time per key: with stops bunched into one corner, equal
+// time per key crawls through the cluster and bolts across the gap.
+function retimeLinear(pts, dur) {
+  const n = pts.length;
+  if (n < 2) return pts;
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + travelBetween(pts[i - 1], pts[i]);
+  const total = cum[n - 1];
+  const at = total > 1e-9 ? (i) => cum[i] / total : (i) => i / (n - 1);
+  return pts.map((q, i) => ({ ...q, t: at(i) * dur }));
+}
+
 const MAX_SPAN = 240;              // no single segment may swallow more than this
 function segFits(pts, a, b, tolPos, tolAng) {
   const A = pts[a], B = pts[b], span = B.t - A.t;
@@ -2904,6 +2928,10 @@ function buildProc(clip) {
     pts = keep;
   }
 
+  // Last of all, and only the times: the point set is already final, so this
+  // cannot interact with the detail tolerances or the cut matching above.
+  if (f.timing === "linear") pts = retimeLinear(pts, srcDur);
+
   return { pts, ghosts, srcDur, outDur: srcDur / clampTo(f.speed, 0.05, 20),
            tIn, tOut, rawDur, spikes, seed: seedOf(clip.id), rev };
 }
@@ -2978,6 +3006,13 @@ function takeCard(clip) {
       <button class="tbtn auto ${f.trimAuto ? "on" : ""}" data-tact="trimauto" title="Find the still head and tail again">auto</button>
     </div>
     ${fxSlider("Detail", "detail", f.detail, dotsTxt(pr), "Fewer points and a smoother curve. The recording itself is untouched.")}
+    <div class="fxrow">
+      <label title="As recorded keeps the accelerations of the original flight. Linear covers equal ground per second, and still obeys Ease and the rest.">Timing</label>
+      <select data-tact="timing" style="flex:1">
+        <option value="recorded" ${f.timing !== "linear" ? "selected" : ""}>As recorded</option>
+        <option value="linear" ${f.timing === "linear" ? "selected" : ""}>Linear</option>
+      </select>
+    </div>
     ${fxSlider("Speed", "speed", Math.log2(f.speed), speedTxt(f, pr), "Retime the whole clip")}
     ${fxSlider("Ease", "ease", f.ease, pctTxt(f.ease), "Ease in and out of the move")}
     ${fxSlider("Handheld", "shake", f.shake, pctTxt(f.shake), "Add a held-camera wobble")}
@@ -3045,6 +3080,11 @@ $("takeList").addEventListener("input", (e) => {
   const pair = clipFromEvent(e), clip = pair[0], row = pair[1];
   if (!clip) return;
   const act = e.target.dataset.tact, f = fxOf(clip);
+  if (act === "timing") {
+    f.timing = e.target.value;
+    fxTouched(clip); patchTakeRow(row, clip); updateEstimate(); markDirty();
+    return;
+  }
   const v = parseFloat(e.target.value);
   if (!isFinite(v)) return;
   if (act === "detail") f.detail = clamp01(v);
@@ -3114,6 +3154,35 @@ $("takeList").addEventListener("click", (e) => {
 
 // The filtered path handed to the waypoint system as editable stops. Lower the
 // Detail slider first unless you want several hundred of them.
+// Hand-placed stops are a way of authoring a move, not a second kind of move.
+// Saving them makes a take like any other: same filters, same transport, same
+// render queue. The only thing that differed was how the keys got there, and
+// that is now just the Timing property, which every take has.
+let waypointSeq = 0;
+function waypointsToTake() {
+  const n = shot.points.length;
+  if (n < 2) { setStatus("Place at least two waypoints first.", true); return; }
+  const dur = Math.max(1, shot.duration);
+  const fov = camera.fov;
+  const keys = shot.points.map(p => ({ t: 0, p: p.pos.slice(), yaw: p.yaw, pitch: p.pitch, fov }));
+  const samples = retimeLinear(keys, dur).map(q => ({
+    t: round4(q.t), p: q.p.map(round4), yaw: round4(q.yaw), pitch: round4(q.pitch), fov,
+  }));
+  const name = `Waypoints ${String(++waypointSeq).padStart(2, "0")} (${n})`;
+  const src = { id: uuid(), name, samples };
+  sources.push(src);
+  // Ease on by default, because that fixed smoothstep is what the waypoint
+  // preview always applied and what these stops are expected to feel like.
+  const clip = { id: uuid(), srcId: src.id, name, enabled: true,
+                 fx: { ...newFx(), trimAuto: false, timing: "linear", ease: 1 } };
+  takes.push(clip);
+  tlTarget = "take:" + clip.id;
+  markDirty();
+  updateTakeUi();
+  setStatus(`"${name}" is a take now, with the same filters as any other. The waypoints stay where they are.`);
+}
+$("wpToTake").onclick = waypointsToTake;
+
 function takeToWaypoints(clip) {
   const pr = procOf(clip);
   if (!pr.pts.length) return;

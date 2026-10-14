@@ -39,13 +39,28 @@ The zone, the selector and the transport exist. The body is still a placeholder.
 - [ ] **Scrub the waypoint shot.** The transport scrubs a take today; a shot
       is still play-only.
 
-## One path type (agreed, not built)
+## One path type (half built, v0.5.9)
 
 Proposed: stop having two kinds of camera move. A waypoint shot and a recorded
 take become the same thing, a **path**: an ordered list of keys carrying time,
 position, yaw, pitch and fov, plus the filter chain. Recording produces one
 with dense keys; placing waypoints produces one with sparse keys; Detail turns
 dense into sparse. Waypoints are simply the keyframes.
+
+**Done in v0.5.9.** Timing is now a property of every take, not a consequence
+of how it was authored: `As recorded` keeps the pacing of the flight, `Linear`
+covers equal ground per second. That is the better half of the idea, because
+it decouples how a take was made from how it plays — a hand-flown take can
+drop its own speed variation without losing points to Detail. The waypoint
+block grew a **Save as take**, which hands the stops to the take list as
+`Waypoints 01 (3)` with Timing `Linear` and Ease 100%, the two settings that
+reproduce what waypoint playback always did. The waypoints stay put afterwards:
+the block is a scratchpad, the take is the saved thing.
+
+**Still to do.** One data structure. Today a saved take is a copy, so editing
+the waypoints afterwards does not reach it, and the transport still lists the
+waypoint shot separately. Collapsing those is what removes the second playback
+path, the second gizmo and the second shape in the project file.
 
 What it collapses: two playback paths, two gizmos, two sets of interpolation,
 two shapes in the project file, and the "To waypoints" button, which stops
