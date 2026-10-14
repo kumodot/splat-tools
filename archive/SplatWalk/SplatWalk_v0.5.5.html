@@ -76,6 +76,12 @@
      than useless. */
   #transport select { flex: 0 1 190px; min-width: 110px; height: 21px; padding: 0 4px;
     font-size: 11px; }
+  /* Recording belongs next to the playhead, with the one play button, rather
+     than in a panel on the other side of the screen. */
+  #tpRec { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
+  #tpRecDot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+  body.motionrec #tpRec { border-color: var(--danger); color: var(--danger); }
+  body.motionrec #tpRecDot { animation: recblink 1s steps(2) infinite; }
   #transport input[type=range]:not(:disabled) { cursor: pointer; }
   #transport input[type=range] { flex: 1; min-width: 0; }
 
@@ -224,7 +230,12 @@
   #modal h3 { margin: 0 0 8px; }
   #modal p { margin: 6px 0; }
   #helpBtn { position: fixed; right: 12px; bottom: 12px; z-index: 6; }
-  #help { position: fixed; right: 12px; bottom: 44px; z-index: 6; background: var(--panel); border: 1px solid var(--line);
+  /* Anchored to the same variables as everything else, so it rides up when the
+     timeline opens and settles back down when it closes, instead of being
+     covered by it. */
+  #help { position: fixed; z-index: 9; transition: bottom 0.18s ease, right 0.18s ease;
+    right: calc(var(--rightW) + 12px);
+    bottom: calc(var(--statusH) + var(--transportH) + var(--tlH) + 10px); background: var(--panel); border: 1px solid var(--line);
     border-radius: 10px; padding: 12px 16px; display: flex; gap: 26px; font-size: 12px; backdrop-filter: blur(6px); }
   #help.hidden { display: none; }
   #help h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
@@ -441,8 +452,7 @@
       <label><input type="checkbox" id="shotLoop"> loop</label>
     </div>
     <div class="row tight">
-      <button class="small" id="shotPlay" title="P">Play</button>
-      <button class="primary small" id="shotRecord" title="R">Record</button>
+      <button class="small" id="shotRecord" title="Capture the live view to a webm while the shot plays (R). The render queue below is the better route.">Record webm</button>
       <span class="hint" id="recHint"></span>
     </div>
   </section>
@@ -530,6 +540,7 @@
 </div>
 
 <div id="transport" class="zone">
+  <button class="small rec" id="tpRec" title="Record a new move in real time (T)"><span id="tpRecDot"></span>Record</button>
   <button class="small" id="tpHome" title="Back to the start" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2 H3.6 V10 H2 Z M10 2 V10 L4.6 6 Z"/></svg></button>
   <button class="small" id="tpPlay" title="Play the current take or shot" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path id="tpIcon" d="M3 2 L10 6 L3 10 Z"/></svg></button>
   <select id="tlTarget" title="What the transport and the timeline are driving"></select>
@@ -559,9 +570,9 @@
   <div class="col">
     <h4>Cine</h4>
     <div><kbd>K</kbd> add waypoint</div>
-    <div><kbd>P</kbd> play the shot</div>
-    <div><kbd>R</kbd> record to webm</div>
-    <div><kbd>T</kbd> record motion for a take</div>
+    <div><kbd>P</kbd> play what is selected</div>
+    <div><kbd>T</kbd> record a move</div>
+    <div><kbd>R</kbd> record the live view to webm</div>
     <div><kbd>O</kbd> orbit the crosshair</div>
     <div><kbd>click</kbd> in orbit: new centre</div>
     <div><kbd>M</kbd> hide the pointer</div>
@@ -642,7 +653,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.5.5";
-const APP_BUILT = "2026-10-14 02:39 UTC";
+const APP_BUILT = "2026-10-14 02:46 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -1643,7 +1654,6 @@ function updateCineUi() {
   $("shotCount").textContent = shot.points.length
     ? `${shot.points.length} waypoint${shot.points.length > 1 ? "s" : ""}`
     : "no shot yet";
-  $("shotPlay").textContent = shot.playing ? "Stop" : "Play";
   updateTlTarget();
   const rec = recorder && recorder.state === "recording";
   $("shotRecord").textContent = rec ? "Stop rec" : "Record";
@@ -1672,7 +1682,6 @@ $("shotAdd").onclick = addWaypoint;
 $("shotClear").onclick = clearShot;
 $("shotDuration").onchange = (e) => { shot.duration = Math.max(1, parseFloat(e.target.value) || 12); markDirty(); };
 $("shotLoop").onchange = (e) => { shot.loop = e.target.checked; buildShotCurve(); markDirty(); };
-$("shotPlay").onclick = () => { shot.playing ? stopShot() : playShot(false); };
 $("shotRecord").onclick = () => {
   if (recorder && recorder.state === "recording") { stopShot(); return; }
   shot.curve ? playShot(true) : startRecording();     // no path: just record the live view
@@ -1683,7 +1692,7 @@ addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.code === "KeyH") setHelp($("help").classList.contains("hidden"));
   if (e.code === "KeyK") addWaypoint();
-  if (e.code === "KeyP") shot.playing ? stopShot() : playShot(false);
+  if (e.code === "KeyP") $("tpPlay").click();        // one play, wherever you press it
   if (e.code === "KeyR") $("shotRecord").click();
   if (e.code === "KeyO") { cine.mode = "orbit"; setOrbitTargetFromView(); }
   if (e.code === "KeyM") toggleCursor();
@@ -2460,11 +2469,12 @@ function fxOf(clip) { if (!clip.fx) clip.fx = newFx(); return clip.fx; }
 // because the recording underneath can never change.
 function fxTouched(clip) { clip._rev = (clip._rev || 0) + 1; }
 
-function startMotionRec() {
+function startMotionRec(name) {
   if (bakeState.running) return;
-  motionRec = { samples: [], t0: performance.now() };
+  motionRec = { samples: [], t0: performance.now(), name: name || "" };
   document.body.classList.add("motionrec");
   $("motionRec").lastChild.textContent = "Stop recording";
+  $("tpRec").lastChild.textContent = "Stop";
   setStatus("Recording motion. Fly the shot, then press T or the button to stop.");
   updateTakeUi();
 }
@@ -2474,12 +2484,14 @@ function stopMotionRec() {
   motionRec = null;
   document.body.classList.remove("motionrec");
   $("motionRec").lastChild.textContent = "Record motion";
+  $("tpRec").lastChild.textContent = "Record";
   if (!rec || rec.samples.length < 2) {
     setStatus("Take discarded, it was too short to render.", true);
     updateTakeUi();
     return;
   }
-  const name = `take ${String(++takeSeq).padStart(2, "0")}`;
+  const name = rec.name || `take ${String(takeSeq + 1).padStart(2, "0")}`;
+  takeSeq++;
   const src = { id: uuid(), name, samples: rec.samples };
   sources.push(src);
   const clip = { id: uuid(), srcId: src.id, name, enabled: true, fx: newFx() };
@@ -3171,6 +3183,15 @@ $("tlTarget").onchange = (e) => {
   const take = currentTake();
   if (take) { cine.mode = "free"; applyPose(sampleTake(take, 0)); setStatus(`Loaded "${take.name}", at its first frame.`); }
   else if (tlTarget === "shot" && shot.points.length) goToWaypoint(0);
+};
+// Named up front, because a take you have to find and rename afterwards is a
+// take called "take 07" for ever.
+$("tpRec").onclick = () => {
+  if (motionRec) { stopMotionRec(); return; }
+  const suggested = `take ${String(takeSeq + 1).padStart(2, "0")}`;
+  const name = prompt("Name for this recording", suggested);
+  if (name === null) return;
+  startMotionRec(name.trim() || suggested);
 };
 $("tpHome").onclick = () => {
   const take = currentTake();
