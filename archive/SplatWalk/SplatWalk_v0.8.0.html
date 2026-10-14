@@ -243,7 +243,9 @@
   #gripRight { top: var(--hdr); bottom: var(--statusH); width: 11px; cursor: ew-resize;
     right: calc(var(--rightW) - 5px); }
   #gripRight::after { top: 0; bottom: 0; left: 4px; width: 3px; }
-  #gripTl { left: 0; right: var(--rightW); height: 11px; cursor: ns-resize;
+  /* No handle: the timeline is one track, so its height is not a choice. */
+  #gripTl { display: none; }
+  #gripTl.unused { left: 0; right: var(--rightW); height: 11px; cursor: ns-resize;
     bottom: calc(var(--statusH) + var(--transportH) + var(--tlH) - 5px); }
   #gripTl::after { left: 0; right: 0; top: 4px; height: 3px; }
   /* A real line in the flow, not an invisible strip over the top of one. The
@@ -621,10 +623,17 @@
       <input type="range" id="orbitSpeed" min="-0.6" max="0.6" step="0.01" value="0.12" style="flex:1">
       <span class="hint" id="orbitSpeedVal" style="flex:0 0 60px"></span>
     </div>
-    <div class="row tight" id="orbitTakeRow">
-      <label style="flex:0 0 auto" title="How far around to go. 360 comes back to where it started and the take is marked as a loop.">Sweep</label>
+    <div class="row" id="orbitTakeRow">
+      <label style="flex:0 0 auto" title="The angle the take begins at. The live orbit keeps spinning; the take does not care, it starts here.">Start</label>
+      <input type="number" id="orbitStart" value="0" min="-360" max="720" step="15">
+      <button class="small" id="orbitStartHere" title="Use the angle you are looking from right now">Use view</button>
+    </div>
+    <div class="row">
+      <label style="flex:0 0 auto" title="How far around to go from the start. 360 comes back to where it began and the take is marked as a loop. The sign of Orbit speed decides which way.">Sweep</label>
       <input type="number" id="orbitDeg" value="360" min="5" max="1440" step="15">
       <span class="hint" id="orbitTakeHint" style="flex:1"></span>
+    </div>
+    <div class="row tight">
       <button class="small" id="orbitToTake" title="Bake this orbit into a take at the current speed and sweep">Save as take</button>
     </div>
   </section>
@@ -809,7 +818,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.8.0";
-const APP_BUILT = "2026-10-14 05:14 UTC";
+const APP_BUILT = "2026-10-14 05:25 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -1716,10 +1725,6 @@ makeGrip($("gripRight"), (e) => {
   layout.rightW = cl(innerWidth - e.clientX, 240, Math.max(240, Math.min(640, innerWidth - 260)));
   applyLayout();
 });
-makeGrip($("gripTl"), (e) => {
-  layout.tlH = cl(innerHeight - e.clientY - chromePx(), 90, Math.max(90, innerHeight - hdrPx() - chromePx() - 140));
-  applyLayout();
-});
 makeGrip($("gripProps"), (e) => {
   const box = $("right").getBoundingClientRect();
   layout.propsFlex = cl((e.clientY - box.top) / Math.max(1, box.height), 0.12, 0.88);
@@ -1728,7 +1733,6 @@ makeGrip($("gripProps"), (e) => {
 // Double-click a divider to put it back where it started.
 const resetGrip = (key) => () => { layout[key] = LAYOUT_DEFAULTS[key]; applyLayout(); saveLayout(); };
 $("gripRight").addEventListener("dblclick", resetGrip("rightW"));
-$("gripTl").addEventListener("dblclick", resetGrip("tlH"));
 $("gripProps").addEventListener("dblclick", resetGrip("propsFlex"));
 
 $("tgRight").onchange = (e) => setZone("noright", e.target.checked);
@@ -1811,9 +1815,8 @@ document.querySelectorAll("#props section h2, #layers section h2").forEach((h2, 
   // A window that has since been made much smaller must not restore a panel
   // wider than the window itself.
   layout.rightW = cl(layout.rightW, 240, Math.max(240, innerWidth - 260));
-  // One track is all there is, so a height saved when the output column lived
-  // in here is just empty space over the scene. Snapped back to the fit.
-  layout.tlH = cl(layout.tlH, TL_FIT, Math.max(TL_FIT, innerHeight - hdrPx() - chromePx() - 140));
+  // The timeline measures itself now, so whatever height was saved is noise.
+  layout.tlH = TL_FIT;
   applyLayout();
   const folds = safeJson(localStorage.getItem(LS_FOLDS)) || {};
   document.querySelectorAll("[data-fold]").forEach(h2 => {
@@ -1918,10 +1921,14 @@ function updateCineUi() {
   const sp = orbit.speed;
   $("orbitSpeedVal").textContent = Math.abs(sp) < 0.005 ? "still"
     : `${(360 * Math.abs(sp) / (2 * Math.PI)).toFixed(0)}\u00B0/s ${sp > 0 ? "cw" : "ccw"}`;
-  const deg = clampTo(parseFloat($("orbitDeg").value) || 360, 5, 1440);
-  const rate = Math.abs(sp);
+  // Start and end as plain numbers, because "it starts wherever the camera
+  // happens to be" is not something you can aim with while it is spinning.
+  const deg = orbitSweepDeg(), rate = Math.abs(sp);
+  const a0 = orbitStartDeg(), a1 = a0 + (sp < 0 ? -deg : deg);
+  const wrap = (d) => ((d % 360) + 360) % 360;
   $("orbitTakeHint").textContent = cine.mode !== "orbit" ? "orbit mode only"
-    : rate > 0.004 ? `${(deg * Math.PI / 180 / rate).toFixed(1)}s` : "12.0s at rest";
+    : `${Math.round(wrap(a0))}° → ${Math.round(wrap(a1))}° · `
+      + (rate > 0.004 ? `${(deg * Math.PI / 180 / rate).toFixed(1)}s` : "12.0s at rest");
 }
 
 $("cineSmooth").oninput = (e) => { cam.smoothing = parseFloat(e.target.value); updateCineUi(); };
@@ -1935,7 +1942,24 @@ $("cineOrbit").onclick = () => {
   setOrbitTargetFromView();            // start on whatever is framed, then click to change it
 };
 $("orbitSpeed").oninput = (e) => { orbit.speed = parseFloat(e.target.value); updateCineUi(); };
+const orbitSweepDeg = () => clampTo(parseFloat($("orbitDeg").value) || 360, 5, 1440);
+const orbitStartDeg = () => {
+  const v = parseFloat($("orbitStart").value);
+  return isFinite(v) ? v : 0;
+};
 $("orbitDeg").oninput = () => updateCineUi();
+// Typing a start angle takes you there, so the number means something you can
+// see rather than something you have to imagine.
+$("orbitStart").oninput = () => {
+  if (cine.mode === "orbit") orbit.azimuth = orbitStartDeg() * Math.PI / 180;
+  updateCineUi();
+};
+$("orbitStartHere").onclick = () => {
+  const d = ((orbit.azimuth * 180 / Math.PI) % 360 + 360) % 360;
+  $("orbitStart").value = Math.round(d);
+  updateCineUi();
+  setStatus(`Orbit take starts at ${Math.round(d)}°, where you are looking from now.`);
+};
 $("shotAdd").onclick = addWaypoint;
 $("shotClear").onclick = clearShot;
 $("shotDuration").onchange = (e) => { shot.duration = Math.max(1, parseFloat(e.target.value) || 12); markDirty(); };
@@ -3415,6 +3439,10 @@ function sampleEdit(ed, time) {
 // work, so the last edit you touched is remembered separately, and if there
 // are none at all one is made rather than refusing.
 let activeEditId = null;
+let activeTakeId = null;
+// What + Timeline acts on. The transport can only hold one thing, so once it
+// is holding an edit the "current" take is gone; this is the one you last had.
+const lastTake = () => currentTake() || takeById(activeTakeId);
 function targetEdit(create) {
   const ed = currentEdit() || editById(activeEditId) || (edits.length === 1 ? edits[0] : null);
   if (ed) { activeEditId = ed.id; return ed; }
@@ -3630,6 +3658,7 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
   }
   if (act === "pick") {
     tlTarget = "take:" + take.id;
+    activeTakeId = take.id;
     propsFocus = "clip";
     $("tlTarget").value = tlTarget;
     updateTransport(); updateTakeUi(); renderShotStrip(); renderProps();
@@ -3699,17 +3728,23 @@ function sendToTimeline(take) {
   const ed = targetEdit(true);
   const r = placeTake(ed, take);
   tlSel = r.b.id; tlSig = "";
+  // Sending a take to the timeline is assembling, so it ends with you looking
+  // at the timeline: the edit loads in the transport and the playhead parks at
+  // the end of what you just added, which is where the next one goes. Press
+  // the clapper four times and you have four blocks in a row.
+  tlTarget = "edit:" + ed.id;
+  propsFocus = "clip";
   markDirty(); updateTakeUi(); renderTimeline(); renderShotStrip();
-  if (r.atHead) {
-    setStatus(`"${take.name}" added to "${ed.name}" at the playhead.`);
-  } else {
-    // Put the playhead where the block actually landed, so the next one goes
-    // after it and you are looking at what you just did.
-    if (currentEdit() === ed) seekTo(r.at);
-    setStatus(`"${take.name}" did not fit under the playhead, so it went to the end of "${ed.name}" at ${fmtClock(r.at)}.`);
-  }
+  const end = Math.min(editDuration(ed), r.at + (blockRange(r.b) || { dur: 0 }).dur);
+  seekTo(end);
+  setStatus(r.atHead
+    ? `"${take.name}" added to "${ed.name}" at the playhead. The playhead is now at ${fmtClock(end)}, ready for the next one.`
+    : `"${take.name}" did not fit under the playhead, so it went to the end of "${ed.name}". The playhead followed it to ${fmtClock(end)}.`);
 }
-$("takeToTl").onclick = () => sendToTimeline(currentTake());
+// Adding a take loads the edit, so by the next press there is no "current"
+// take any more. The last one you had selected is remembered for exactly
+// this: pressing + Timeline twice adds the same take twice, in a row.
+$("takeToTl").onclick = () => sendToTimeline(lastTake());
 
 // Dragging the name onto the timeline is the other way in, and the one that
 // was asked for. The drag starts on the name rather than the whole row so it
@@ -3988,7 +4023,7 @@ function updateTransport() {
   $("tpScrub").disabled = !(take || ed);    // these scrub; a waypoint shot does not yet
   $("tlInfo").textContent = ed ? (() => { const n = editLayout(ed).length;
       return `${ed.name} \u00b7 ${n} block${n === 1 ? "" : "s"} \u00b7 ${fmtClock(editDuration(ed))}`; })()
-    : take ? `${procOf(take).pts.length} points` : "";
+    : "";   // with no edit the header is renderTimeline's, for the hint
   if (!takePreview) { $("tpTime").textContent = fmtClock(0); $("tpScrub").value = 0; }
   renderTimeline();
   updateEstimate();
@@ -4035,6 +4070,7 @@ $("tpScrub").oninput = (e) => {
 $("tlTarget").onchange = (e) => {
   tlTarget = e.target.value;
   if (currentEdit()) activeEditId = currentEdit().id;
+  if (currentTake()) activeTakeId = currentTake().id;
   propsFocus = "clip";
   updateTakeUi();
   updateTransport();
@@ -4147,21 +4183,35 @@ function renderTimeline() {
   const show = !!ed && l.length > 0;
   $("tlRenameEdit").disabled = !ed;
   $("tlDelEdit").disabled = !ed;
-  $("tlRazor").disabled = !ed;
-  $("takeToTl").disabled = !currentTake();
+  $("takeToTl").disabled = !lastTake();
   // Duplicate / Reset trim / Remove act on a block. With no block picked they
   // are three verbs with no object, which is what they looked like.
   const onBlock = !!(ed && l.some(s => s.b.id === tlSel));
   $("tlActs").style.display = onBlock ? "flex" : "none";
+  // Outside the signature, because updateTransport clears the header on its
+  // way past and the hint has to come back even when nothing structural moved.
+  if (!show) {
+    $("tlInfo").textContent = !ed
+      ? (edits.length ? "pick an edit in the transport to lay it out here"
+                      : "no edits yet · press + Edit, then send a take to it")
+      : `"${ed.name}" is empty · drag a take here, or use the clapper on one`;
+  }
   if (sig === tlSig) return;
   tlSig = sig;
+  // With nothing to show there is nothing to be tall for: the strip goes away
+  // and the panel is its row of buttons. The hint moves into the header,
+  // where there is already room for it.
+  $("tlBody").style.display = show ? "" : "none";
   $("tlScale").style.display = show ? "" : "none";
-  $("tlEmpty").style.display = show ? "none" : "";
-  $("tlEmpty").textContent = !ed
-    ? (edits.length ? "Pick an edit in the transport selector to lay it out here."
-                    : "No edits yet. Press + Edit, then drag takes in or use the arrow on a take.")
-    : `"${ed.name}" is empty. Drag a take onto this strip, or press \u2192 on a take in the list.`;
-  if (!show) return;
+  $("tlEmpty").style.display = "none";
+  if (!show) {
+    $("tlInfo").textContent = !ed
+      ? (edits.length ? "pick an edit in the transport to lay it out here"
+                      : "no edits yet \u00b7 press + Edit, then send a take to it")
+      : `"${ed.name}" is empty \u00b7 drag a take here, or use the clapper on one`;
+    fitTimeline();
+    return;
+  }
   const span = tlSpan(ed);
   $("tlBlocks").innerHTML = l.map(s => `
     <div class="tlblk ${tlSel === s.b.id ? "sel" : ""}" data-bid="${s.b.id}"
@@ -4177,6 +4227,18 @@ function renderTimeline() {
   renderRuler(span);
   const sel = l.find(s => s.b.id === tlSel);
   $("tlHint").textContent = sel ? `${sel.take.name} · ${sel.dur.toFixed(1)}s of ${takeDuration(sel.take).toFixed(1)}s` : "";
+  fitTimeline();
+}
+
+// The panel is its content and nothing more. Measured rather than guessed,
+// because the ruler, the track and the padding are all CSS and a number
+// copied here by hand goes stale the first time one of them changes.
+function fitTimeline() {
+  const head = document.querySelector("#timeline .zonehead");
+  if (!head) return;
+  const body = $("tlBody").style.display === "none" ? 0 : $("tlScale").offsetHeight + 16;
+  const h = Math.round(head.offsetHeight + body + 1);
+  if (h > 20 && Math.abs(h - layout.tlH) > 1) { layout.tlH = h; applyLayout(); }
 }
 
 function tlPlayheadAt(t, dur) {
@@ -4184,6 +4246,10 @@ function tlPlayheadAt(t, dur) {
   const el = $("tlHead");
   if (!el) return;
   const ed = currentEdit();
+  // The razor acts on the block under the playhead, so it is only a button
+  // when there is one. Greyed out, it says what it needs without a message.
+  $("tlRazor").disabled = !(ed && editLayout(ed)
+    .some(s => t > s.t0 + 1e-3 && t < s.t0 + s.dur - 1e-3));
   const on = !!ed && $("tlScale").style.display !== "none";
   // "" would fall back to the stylesheet, which hides it. The playhead was
   // being drawn every frame straight into display:none.
