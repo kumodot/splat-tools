@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.7.0</title>
+<title>SplatWalk v0.8.0</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -71,18 +71,16 @@
   #timeline { left: 0; right: var(--rightW); height: var(--tlPanelH);
     bottom: calc(var(--statusH) + var(--transportH)); border-width: 1px 1px 0 0;
     display: flex; flex-direction: column; }
-  /* Two columns: the strip, and the output settings for whatever it is
-     showing. The render belongs beside the thing it renders, not loose in the
-     middle of the right column between a splat list and a camera. */
+  /* The panel is exactly its header plus one track. There is one track, so
+     any height beyond that was empty space sitting on top of the scene. */
   #tlBody { flex: 1; min-height: 0; display: flex; font-size: 12px; }
-  #tlMain { flex: 1; min-width: 0; overflow: auto; padding: 9px 10px; }
-  #tlOut { flex: 0 0 168px; overflow-y: auto; padding: 9px 10px;
-    border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
-  #tlOut .outhead { font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+  #tlMain { flex: 1; min-width: 0; overflow: auto; padding: 8px 10px; }
+  #outMenu { width: 196px; }
+  #outMenu .outhead { font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
     color: var(--muted); margin-bottom: 1px; }
-  #tlOut select, #tlOut button { width: 100%; }
-  #tlOut label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
-  #tlOut #estimate { line-height: 1.45; }
+  #outMenu select, #outMenu button { width: 100%; }
+  #outMenu label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  #outMenu #estimate { line-height: 1.45; }
   #tlEmpty { color: var(--muted); text-align: center; padding: 20px 10px; }
   #tlScale { position: relative; }
   /* A ruler, because a strip with holes in it is only readable against time. */
@@ -498,7 +496,7 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.7.0</span>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.8.0</span>
   <span class="sep"></span>
   <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
   <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
@@ -511,10 +509,36 @@
     <label title="Show the keyboard shortcuts card (H)"><input type="checkbox" id="tgHelp" checked> Shortcuts</label>
   </span>
   <span class="sep"></span>
-  <button class="small" id="shotRecord" title="Record the live view to a webm file while a shot or take plays (R). For a finished file, Render in the Takes panel is the better route.">Capture to video</button>
+  <button class="primary small" id="renderBtn" title="Render what the timeline is showing. Opens the output settings.">Render</button>
+  <button class="small" id="shotRecord" title="Record the live view to a webm file while a shot or take plays (R). For a finished file, Render is the better route.">Capture to video</button>
   <span class="sep"></span>
   <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
   <button class="small" id="aboutBtn">About</button>
+</div>
+
+<div class="menu" id="outMenu">
+  <div class="outhead">Output</div>
+  <select id="bakeRes" title="Frame size">
+    <option value="1280x720">1280 x 720</option>
+    <option value="1920x1080" selected>1920 x 1080</option>
+    <option value="2560x1440">2560 x 1440</option>
+    <option value="3840x2160">3840 x 2160 (4K)</option>
+    <option value="1080x1920">1080 x 1920 (vertical)</option>
+    <option value="1080x1080">1080 x 1080 (square)</option>
+  </select>
+  <select id="bakeFps" title="Frame rate">
+    <option value="24">24 fps</option>
+    <option value="30">30 fps</option>
+    <option value="60" selected>60 fps</option>
+  </select>
+  <select id="bakeFormat" title="File format">
+    <option value="mp4" selected>MP4 (H.264)</option>
+    <option value="png">PNG sequence</option>
+    <option value="jpg">JPG sequence</option>
+  </select>
+  <label title="Render at double size and downsample. Slower, cleaner edges."><input type="checkbox" id="bakeSS"> 2x supersample</label>
+  <button class="primary small" id="bakeBtn">Render</button>
+  <span id="estimate"></span>
 </div>
 
 <div class="menu" id="projMenu">
@@ -597,6 +621,12 @@
       <input type="range" id="orbitSpeed" min="-0.6" max="0.6" step="0.01" value="0.12" style="flex:1">
       <span class="hint" id="orbitSpeedVal" style="flex:0 0 60px"></span>
     </div>
+    <div class="row tight" id="orbitTakeRow">
+      <label style="flex:0 0 auto" title="How far around to go. 360 comes back to where it started and the take is marked as a loop.">Sweep</label>
+      <input type="number" id="orbitDeg" value="360" min="5" max="1440" step="15">
+      <span class="hint" id="orbitTakeHint" style="flex:1"></span>
+      <button class="small" id="orbitToTake" title="Bake this orbit into a take at the current speed and sweep">Save as take</button>
+    </div>
   </section>
 
   <section>
@@ -640,6 +670,8 @@
     <button class="small warn" id="tlDelEdit" title="Delete this edit. The takes in it are untouched.">Delete</button>
     <span class="tlrule"></span>
     <button class="small" id="tlRazor" title="Cut the block under the playhead in two (C)">Razor</button>
+    <button class="small" id="tlUndo" title="Undo (Ctrl+Z)">Undo</button>
+    <button class="small" id="tlRedo" title="Redo (Ctrl+Shift+Z)">Redo</button>
     <span id="tlActs">
       <span class="tlrule"></span>
       <span class="hint" id="tlHint"></span>
@@ -658,30 +690,6 @@
         <div id="tlTrack"><div id="tlBlocks"></div></div>
         <div id="tlHead"></div>
       </div>
-    </div>
-    <div id="tlOut">
-      <div class="outhead">Output</div>
-      <select id="bakeRes" title="Frame size">
-        <option value="1280x720">1280 x 720</option>
-        <option value="1920x1080" selected>1920 x 1080</option>
-        <option value="2560x1440">2560 x 1440</option>
-        <option value="3840x2160">3840 x 2160 (4K)</option>
-        <option value="1080x1920">1080 x 1920 (vertical)</option>
-        <option value="1080x1080">1080 x 1080 (square)</option>
-      </select>
-      <select id="bakeFps" title="Frame rate">
-        <option value="24">24 fps</option>
-        <option value="30">30 fps</option>
-        <option value="60" selected>60 fps</option>
-      </select>
-      <select id="bakeFormat" title="File format">
-        <option value="mp4" selected>MP4 (H.264)</option>
-        <option value="png">PNG sequence</option>
-        <option value="jpg">JPG sequence</option>
-      </select>
-      <label title="Render at double size and downsample. Slower, cleaner edges."><input type="checkbox" id="bakeSS"> 2x supersample</label>
-      <button class="primary small" id="bakeBtn">Render</button>
-      <span id="estimate"></span>
     </div>
   </div>
 </div>
@@ -717,7 +725,8 @@
   <div class="col">
     <h4>Cine</h4>
     <div><kbd>K</kbd> add waypoint</div>
-    <div><kbd>P</kbd> play what is selected</div>
+    <div><kbd>Space</kbd> play what is selected</div>
+    <div><kbd>C</kbd> razor at the playhead</div>
     <div><kbd>T</kbd> record a move</div>
     <div><kbd>R</kbd> record the live view to webm</div>
     <div><kbd>O</kbd> orbit the crosshair</div>
@@ -771,7 +780,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.7.0</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.8.0</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -799,8 +808,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.7.0";
-const APP_BUILT = "2026-10-14 04:45 UTC";
+const APP_VERSION = "0.8.0";
+const APP_BUILT = "2026-10-14 05:14 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -809,7 +818,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.7.0, so a reload could not tell you whether you
+// changes all shipped as v0.8.0, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1366,7 +1375,7 @@ async function loadProject(name) {
                      fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.7.0 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.8.0 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1633,8 +1642,11 @@ const LS_FOLDS = "splatwalk.folds";
 // enough to show it without a scroll on a 900px screen.
 // Tall enough for the Output column to stand without scrolling, since the
 // timeline carries the render now.
-const LAYOUT_DEFAULTS = { rightW: 311, tlH: 228, propsFlex: 0.42, noright: false, notl: false, nohelp: false };
-const RIGHT_MIN = 240, TL_MIN = 90;
+// One header plus one track, measured: 15 ruler + 3 gap + 52 track + 16
+// padding, under a 30px zone head. Nothing in it wants more.
+const TL_FIT = 118;
+const LAYOUT_DEFAULTS = { rightW: 311, tlH: TL_FIT, propsFlex: 0.42, noright: false, notl: false, nohelp: false };
+const RIGHT_MIN = 240, TL_MIN = TL_FIT;
 const layout = { ...LAYOUT_DEFAULTS };
 const cl = (v, a, b) => v < a ? a : v > b ? b : v;
 const POINTS = ["pt-right", "pt-down", "pt-left", "pt-up"];
@@ -1788,6 +1800,9 @@ document.querySelectorAll("#props section h2, #layers section h2").forEach((h2, 
   });
 });
 
+// Older builds let the panel be any height because the output column lived in
+// it. It does not any more, so a saved height taller than one track is just
+// empty space over the scene and gets dropped on load.
 (function restoreLayout() {
   const l = safeJson(localStorage.getItem(LS_LAYOUT));
   if (l && typeof l === "object") {
@@ -1796,7 +1811,9 @@ document.querySelectorAll("#props section h2, #layers section h2").forEach((h2, 
   // A window that has since been made much smaller must not restore a panel
   // wider than the window itself.
   layout.rightW = cl(layout.rightW, 240, Math.max(240, innerWidth - 260));
-  layout.tlH = cl(layout.tlH, 90, Math.max(90, innerHeight - hdrPx() - chromePx() - 140));
+  // One track is all there is, so a height saved when the output column lived
+  // in here is just empty space over the scene. Snapped back to the fit.
+  layout.tlH = cl(layout.tlH, TL_FIT, Math.max(TL_FIT, innerHeight - hdrPx() - chromePx() - 140));
   applyLayout();
   const folds = safeJson(localStorage.getItem(LS_FOLDS)) || {};
   document.querySelectorAll("[data-fold]").forEach(h2 => {
@@ -1806,7 +1823,9 @@ document.querySelectorAll("#props section h2, #layers section h2").forEach((h2, 
 
 addEventListener("resize", () => {
   layout.rightW = cl(layout.rightW, 240, Math.max(240, innerWidth - 260));
-  layout.tlH = cl(layout.tlH, 90, Math.max(90, innerHeight - hdrPx() - chromePx() - 140));
+  // One track is all there is, so a height saved when the output column lived
+  // in here is just empty space over the scene. Snapped back to the fit.
+  layout.tlH = cl(layout.tlH, TL_FIT, Math.max(TL_FIT, innerHeight - hdrPx() - chromePx() - 140));
   applyLayout();
 });
 
@@ -1899,6 +1918,10 @@ function updateCineUi() {
   const sp = orbit.speed;
   $("orbitSpeedVal").textContent = Math.abs(sp) < 0.005 ? "still"
     : `${(360 * Math.abs(sp) / (2 * Math.PI)).toFixed(0)}\u00B0/s ${sp > 0 ? "cw" : "ccw"}`;
+  const deg = clampTo(parseFloat($("orbitDeg").value) || 360, 5, 1440);
+  const rate = Math.abs(sp);
+  $("orbitTakeHint").textContent = cine.mode !== "orbit" ? "orbit mode only"
+    : rate > 0.004 ? `${(deg * Math.PI / 180 / rate).toFixed(1)}s` : "12.0s at rest";
 }
 
 $("cineSmooth").oninput = (e) => { cam.smoothing = parseFloat(e.target.value); updateCineUi(); };
@@ -1912,6 +1935,7 @@ $("cineOrbit").onclick = () => {
   setOrbitTargetFromView();            // start on whatever is framed, then click to change it
 };
 $("orbitSpeed").oninput = (e) => { orbit.speed = parseFloat(e.target.value); updateCineUi(); };
+$("orbitDeg").oninput = () => updateCineUi();
 $("shotAdd").onclick = addWaypoint;
 $("shotClear").onclick = clearShot;
 $("shotDuration").onchange = (e) => { shot.duration = Math.max(1, parseFloat(e.target.value) || 12); markDirty(); };
@@ -1926,8 +1950,26 @@ $("shotRecord").onclick = () => {
 };
 
 
+// A select keeps focus after you use it, and several handlers here stand
+// aside for a focused field, so every shortcut went dead until you clicked
+// another control. Pressing anywhere that is not a field gives focus back to
+// the page. The timeline's own pointerdown calls preventDefault, which stops
+// the browser doing this by itself, so it has to be explicit.
+addEventListener("pointerdown", (e) => {
+  const a = document.activeElement;
+  if (!a || a === document.body) return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) a.blur();
+}, true);
+
 addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.code === "KeyY") { e.preventDefault(); redo(); return; }
+  if (e.ctrlKey || e.metaKey) return;
+  // Space is play everywhere else, so it is play here. preventDefault stops
+  // both the page scrolling and a focused button firing a second time.
+  if (e.code === "Space") { e.preventDefault(); $("tpPlay").click(); return; }
   if (e.code === "KeyH") setHelp($("help").classList.contains("hidden"));
   if (e.code === "KeyK") addWaypoint();
   if (e.code === "KeyP") $("tpPlay").click();        // one play, wherever you press it
@@ -2269,6 +2311,7 @@ function updateOrbit(dt) {
 const shot = { points: [], duration: 12, loop: false, curve: null, yaws: [], pitches: [], at: -1 };
 
 function addWaypoint() {
+  undoPoint("a waypoint");
   shot.points.push({ pos: cam.pos.toArray().map(round4), yaw: round4(cam.yaw), pitch: round4(cam.pitch) });
   buildShotCurve();
   markDirty();
@@ -2276,7 +2319,8 @@ function addWaypoint() {
   setStatus(`Waypoint ${shot.points.length} added.`);
 }
 
-function clearShot() {
+function clearShot(quiet) {
+  if (!quiet) undoPoint("clearing the stops");
   shot.points = []; shot.curve = null; shot.at = -1;
   rebuildShotGizmo();
   markDirty(); updateCineUi();
@@ -2578,6 +2622,11 @@ function seekTo(t) {
   else { cine.mode = "free"; applyPose(targetPose(t)); }
   $("tpScrub").value = Math.round(clamp01(t / dur) * 1000);
   $("tpTime").textContent = fmtClock(t);
+  // The clock is normally written once a frame, but the razor and the chips
+  // read it and a seek has to be true the instant it happens, not after the
+  // next frame. A throttled tab made that gap visible: the playhead was where
+  // you put it and the razor still cut at zero.
+  tlPlayheadAt(t, dur);
 }
 
 $("shotStrip").addEventListener("click", (e) => {
@@ -3545,6 +3594,7 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("input",
   const pair = clipFromEvent(e), clip = pair[0], row = pair[1];
   if (!clip) return;
   const act = e.target.dataset.tact, f = fxOf(clip);
+  undoPoint("a filter change");
   if (act === "timing") {
     f.timing = e.target.value;
     fxTouched(clip); patchTakeRow(row, clip); updateEstimate(); markDirty();
@@ -3574,6 +3624,10 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
   if (!take) return;
   const act = e.target.dataset.tact;
   if (act === "toedit") { sendToTimeline(take); return; }
+  if (["del", "dup", "fxreset", "towp", "color", "trimauto", "loop", "reverse", "rename"].includes(act)) {
+    undoPoint(act === "del" ? "deleting a take" : act === "dup" ? "duplicating a take"
+            : act === "rename" ? "a rename" : "a take change");
+  }
   if (act === "pick") {
     tlTarget = "take:" + take.id;
     propsFocus = "clip";
@@ -3641,6 +3695,7 @@ listReorder(itemsEl, ".item", "data-id", (ids) => {
 
 function sendToTimeline(take) {
   if (!take) { setStatus("Pick a take first.", true); return; }
+  undoPoint("adding a block");
   const ed = targetEdit(true);
   const r = placeTake(ed, take);
   tlSel = r.b.id; tlSig = "";
@@ -3668,6 +3723,63 @@ $("takeList").addEventListener("dragstart", (e) => {
 
 // The filtered path handed to the waypoint system as editable stops. Lower the
 // Detail slider first unless you want several hundred of them.
+// An orbit is already a complete camera move, it just has no keys. Sweeping
+// the azimuth at the speed you set gives it some, and from there it is a take
+// like any other: filters, timing, render, a place in an edit. The three ways
+// of authoring a move now all end in the same object.
+let orbitSeq = 0;
+function orbitToTake() {
+  if (cine.mode !== "orbit") { setStatus("Press Orbit and set it up first.", true); return; }
+  const deg = clampTo(parseFloat($("orbitDeg").value) || 360, 5, 1440);
+  const sweep = deg * Math.PI / 180;
+  // Time it the way it would actually play at the speed on the slider, and
+  // fall back to a sensible length when the slider is parked at zero.
+  const rate = Math.abs(orbit.speed);
+  const dur = clampTo(rate > 0.004 ? sweep / rate : 12, 1, 600);
+  const dir = orbit.speed < 0 ? -1 : 1;
+  const n = Math.max(24, Math.min(720, Math.round(deg / 2)));
+  const fov = camera.fov, r = orbit.radius, e = orbit.elevation, a0 = orbit.azimuth;
+  const samples = [];
+  let prevYaw = null;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, a = a0 + dir * sweep * u;
+    const eye = new THREE.Vector3(Math.sin(a) * Math.cos(e) * r, Math.sin(e) * r, Math.cos(a) * Math.cos(e) * r)
+      .add(orbit.target);
+    const look = orbit.target.clone().sub(eye);
+    let yaw = Math.atan2(-look.x, -look.z);
+    // Unwrapped as we go, so a full turn is one continuous sweep instead of
+    // four jumps across the seam.
+    if (prevYaw !== null) {
+      while (yaw - prevYaw > Math.PI) yaw -= 2 * Math.PI;
+      while (prevYaw - yaw > Math.PI) yaw += 2 * Math.PI;
+    }
+    prevYaw = yaw;
+    samples.push({
+      t: round4(u * dur),
+      p: [round4(eye.x), round4(eye.y - EYE_HEIGHT), round4(eye.z)],
+      yaw: round4(yaw),
+      pitch: round4(Math.asin(THREE.MathUtils.clamp(look.y / (look.length() || 1), -1, 1))),
+      fov,
+    });
+  }
+  undoPoint("saving the orbit as a take");
+  const name = `OrbitTake_${String(++orbitSeq).padStart(2, "0")} (${Math.round(deg)}\u00b0)`;
+  const src = { id: uuid(), name, samples };
+  sources.push(src);
+  const clip = { id: uuid(), srcId: src.id, name, enabled: true, color: nextColor(),
+                 // An orbit is already evenly paced and already smooth, so it
+                 // wants neither the auto-trim nor an ease by default.
+                 fx: { ...newFx(), trimAuto: false, timing: "linear", loop: deg >= 359.9 } };
+  takes.push(clip);
+  tlTarget = "take:" + clip.id;
+  propsFocus = "clip";
+  markDirty();
+  updateTakeUi();
+  renderShotStrip();
+  setStatus(`"${name}" saved, ${dur.toFixed(1)}s at the current orbit speed.`);
+}
+$("orbitToTake").onclick = orbitToTake;
+
 // Hand-placed stops are a way of authoring a move, not a second kind of move.
 // Saving them makes a take like any other: same filters, same transport, same
 // render queue. The only thing that differed was how the keys got there, and
@@ -3676,6 +3788,7 @@ let waypointSeq = 0;
 function waypointsToTake() {
   const n = shot.points.length;
   if (n < 2) { setStatus("Place at least two waypoints first.", true); return; }
+  undoPoint("saving the stops as a take");
   const dur = Math.max(1, shot.duration);
   const fov = camera.fov;
   const keys = shot.points.map(p => ({ t: 0, p: p.pos.slice(), yaw: p.yaw, pitch: p.pitch, fov }));
@@ -3695,7 +3808,7 @@ function waypointsToTake() {
   // The stops were scaffolding. Leaving them on screen after the take exists
   // is what made this feel like two overlapping ways of doing one thing, and
   // it left a second path playing in the background behind every preview.
-  clearShot();
+  clearShot(true);          // the save is already one undo step
   markDirty();
   updateTakeUi();
   renderShotStrip();
@@ -3733,6 +3846,91 @@ function startPreview(obj, isEdit) {
 }
 const previewTake = (take) => startPreview(take, false);
 const previewEdit = (ed) => startPreview(ed, true);
+
+// ---------------------------------------------------------------------------
+// Undo
+//
+// Snapshots the editable model, which is small: a take carries filters, an
+// edit carries blocks, the staging area carries stops. Recordings are NOT
+// cloned. A source is thousands of poses and is never edited once it exists,
+// so the array is copied by reference, which is also what brings a deleted
+// take's recording back with it.
+// ---------------------------------------------------------------------------
+const UNDO_MAX = 40;
+const undoStack = [], redoStack = [];
+let lastUndoLabel = "", lastUndoAt = 0;
+
+function snapshot() {
+  return {
+    sources: sources.slice(),
+    takes: takes.map(t => ({ ...t, fx: { ...fxOf(t), cut: (fxOf(t).cut || []).slice() } })),
+    edits: edits.map(e => ({ ...e, blocks: e.blocks.map(b => ({ ...b })) })),
+    shot: { points: shot.points.map(p => ({ ...p, pos: p.pos.slice() })),
+            duration: shot.duration, loop: shot.loop },
+    tlTarget, tlSel, activeEditId,
+  };
+}
+
+function restoreSnapshot(s) {
+  sources.length = 0; sources.push(...s.sources);
+  takes.length = 0;
+  // New objects, so every cached chain is rebuilt rather than trusted.
+  takes.push(...s.takes.map(t => ({ ...t, _rev: (t._rev || 0) + 1 })));
+  edits.length = 0; edits.push(...s.edits);
+  shot.points = s.shot.points; shot.duration = s.shot.duration; shot.loop = s.shot.loop;
+  buildShotCurve();
+  tlTarget = s.tlTarget; tlSel = s.tlSel; activeEditId = s.activeEditId;
+  takePreview = null;
+  tlSig = "";
+  $("shotDuration").value = shot.duration;
+  $("shotLoop").checked = shot.loop;
+  markDirty();
+  updateTakeUi();
+  updateCineUi();
+  renderShotStrip();
+  renderTimeline();
+}
+
+// Called BEFORE a change. Several changes of the same kind in quick
+// succession, which is what dragging a slider is, collapse into one step.
+function undoPoint(label) {
+  const now = performance.now();
+  if (label === lastUndoLabel && now - lastUndoAt < 700) { lastUndoAt = now; return; }
+  lastUndoLabel = label; lastUndoAt = now;
+  undoStack.push({ label, state: snapshot() });
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack.length = 0;
+  updateUndoUi();
+}
+
+function undo() {
+  if (!undoStack.length) { setStatus("Nothing to undo."); return; }
+  const step = undoStack.pop();
+  redoStack.push({ label: step.label, state: snapshot() });
+  restoreSnapshot(step.state);
+  lastUndoLabel = "";
+  updateUndoUi();
+  setStatus(`Undid ${step.label}.`);
+}
+
+function redo() {
+  if (!redoStack.length) { setStatus("Nothing to redo."); return; }
+  const step = redoStack.pop();
+  undoStack.push({ label: step.label, state: snapshot() });
+  restoreSnapshot(step.state);
+  lastUndoLabel = "";
+  updateUndoUi();
+  setStatus(`Redid ${step.label}.`);
+}
+
+function updateUndoUi() {
+  const u = $("tlUndo"), r = $("tlRedo");
+  if (!u) return;
+  u.disabled = !undoStack.length;
+  r.disabled = !redoStack.length;
+  u.title = undoStack.length ? `Undo ${undoStack[undoStack.length - 1].label} (Ctrl+Z)` : "Nothing to undo";
+  r.title = redoStack.length ? `Redo ${redoStack[redoStack.length - 1].label} (Ctrl+Shift+Z)` : "Nothing to redo";
+}
 
 // ---------------------------------------------------------------------------
 // What the timeline is driving
@@ -3880,7 +4078,18 @@ function updatePreview() {
     time = (performance.now() - takePreview.t0) / 1000;
   }
   applyPose(previewPose(time));
-  if (!loops && time >= dur) { takePreview = null; updateTakeUi(); renderTimeline(); setStatus("Preview finished."); }
+  if (!loops && time >= dur) {
+    takePreview = null;
+    updateTakeUi();
+    renderTimeline();
+    // A capture started for this move ends with it. Free navigation has no
+    // end to detect, so that one is still stopped by hand.
+    if (recorder && recorder.state === "recording") {
+      stopRecording();
+      updateCineUi();
+      setStatus("Preview finished, and the capture stopped with it.");
+    } else setStatus("Preview finished.");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -3988,6 +4197,7 @@ function tlPlayheadAt(t, dur) {
 // dialog in the middle of assembling something is a dialog you dismiss without
 // reading.
 $("tlNewEdit").onclick = () => {
+  undoPoint("a new edit");
   const ed = newEdit();
   activeEditId = ed.id;
   tlTarget = "edit:" + ed.id;
@@ -4006,6 +4216,7 @@ $("tlRenameEdit").onclick = () => {
 $("tlDelEdit").onclick = () => {
   const ed = currentEdit();
   if (!ed || !confirm(`Delete the edit "${ed.name}"? The takes in it are not touched.`)) return;
+  undoPoint("deleting an edit");
   edits.splice(edits.indexOf(ed), 1);
   if (takePreview && takePreview.edit === ed) takePreview = null;
   tlTarget = ""; tlSel = null; tlSig = "";
@@ -4020,6 +4231,7 @@ const selBlock = () => {
 $("tlBlkDup").onclick = () => {
   const ed = currentEdit(), b = selBlock();
   if (!ed || !b) return;
+  undoPoint("duplicating a block");
   const r = blockRange(b);
   const copy = { id: uuid(), takeId: b.takeId, tIn: b.tIn, tOut: b.tOut,
                  at: Math.max(0, b.at || 0) + (r ? r.dur : 0) };
@@ -4029,12 +4241,14 @@ $("tlBlkDup").onclick = () => {
 $("tlBlkReset").onclick = () => {
   const b = selBlock();
   if (!b) return;
+  undoPoint("resetting a trim");
   b.tIn = null; b.tOut = null;
   tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
 };
 $("tlBlkDel").onclick = () => {
   const ed = currentEdit(), b = selBlock();
   if (!ed || !b) return;
+  undoPoint("removing a block");
   ed.blocks.splice(ed.blocks.indexOf(b), 1);
   tlSel = null; tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
 };
@@ -4048,6 +4262,7 @@ $("tlBlocks").addEventListener("pointerdown", (e) => {
   if (!b) return;
   const r = blockRange(b);
   if (!r) return;
+  undoPoint(e.target.dataset.edge ? "a trim" : "moving a block");
   tlSel = b.id; tlSig = "";
   const rect = $("tlTrack").getBoundingClientRect();
   tlDrag = { b, el, edge: e.target.dataset.edge || null, x0: e.clientX, rect,
@@ -4120,13 +4335,22 @@ function razorAt(ed, t) {
 function doRazor() {
   const ed = currentEdit();
   if (!ed) { setStatus("The timeline has to be showing an edit to cut one.", true); return; }
+  undoPoint("the razor");
   const right = razorAt(ed, clock.t);
-  if (!right) { setStatus("Put the playhead inside a block to cut it.", true); return; }
+  if (!right) {
+    // Says where the playhead actually is, because "put it inside a block"
+    // is useless advice when you believe it already is.
+    const spans = editLayout(ed).map(s => `${s.t0.toFixed(2)}-${(s.t0 + s.dur).toFixed(2)}`).join(", ");
+    setStatus(`Nothing to cut at ${fmtClock(clock.t)}. Blocks are at ${spans || "nowhere yet"}.`, true);
+    return;
+  }
   tlSel = right.id; tlSig = "";
   markDirty(); updateTransport(); renderShotStrip();
   setStatus(`Cut at ${fmtClock(clock.t)}. Both halves are the same take, so they keep its colour.`);
 }
 $("tlRazor").onclick = doRazor;
+$("tlUndo").onclick = undo;
+$("tlRedo").onclick = redo;
 
 // One track, so two blocks cannot be in the same place. Dropping one onto
 // another slides it to the nearer free side rather than hiding it, which is
@@ -4199,6 +4423,7 @@ $("tlTrack").addEventListener("drop", (e) => {
   const data = e.dataTransfer.getData("text/plain") || "";
   const take = data.startsWith("take:") ? takeById(data.slice(5)) : null;
   if (!take) return;
+  undoPoint("adding a block");
   const rect = $("tlTrack").getBoundingClientRect();
   const tAt = ((e.clientX - rect.left) / Math.max(1, rect.width)) * tlSpan(ed);
   const b = addBlock(ed, take, Math.max(0, tAt));
@@ -4262,6 +4487,8 @@ function updateEstimate() {
   const el = $("estimate");
   const j = estimateJob();
   $("bakeBtn").textContent = j.frames ? `Render ${targetName()}` : "Render";
+  $("renderBtn").textContent = j.frames ? `Render: ${targetName()}` : "Render";
+  $("renderBtn").disabled = !j.frames;
   if (!j.frames) {
     el.textContent = currentEdit() ? "this edit is empty" : "select a take or an edit";
     el.className = "";
@@ -4497,7 +4724,24 @@ async function runBake() {
 }
 
 $("motionRec").onclick = () => motionRec ? stopMotionRec() : startMotionRec();
-$("bakeBtn").onclick = runBake;
+// The settings live behind the button rather than beside it, because they are
+// set once and the button is pressed many times.
+const outMenu = $("outMenu");
+function closeOutMenu() { outMenu.classList.remove("open"); }
+$("renderBtn").onclick = (e) => {
+  e.stopPropagation();
+  const open = outMenu.classList.toggle("open");
+  if (!open) return;
+  updateEstimate();
+  const r = $("renderBtn").getBoundingClientRect();
+  outMenu.style.top = (r.bottom + 4) + "px";
+  outMenu.style.left = Math.max(6, Math.min(r.left, innerWidth - outMenu.offsetWidth - 6)) + "px";
+};
+addEventListener("pointerdown", (e) => {
+  if (!outMenu.contains(e.target) && e.target !== $("renderBtn")) closeOutMenu();
+});
+addEventListener("keydown", (e) => { if (e.code === "Escape") closeOutMenu(); });
+$("bakeBtn").onclick = () => { closeOutMenu(); runBake(); };
 $("bakeCancel").onclick = () => { bakeState.cancel = true; $("bakeCur").textContent = "Stopping after this frame..."; };
 $("bakeDone").onclick = () => bakeUi(false);
 
