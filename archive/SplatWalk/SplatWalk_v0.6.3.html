@@ -87,7 +87,9 @@
   #tlScale { position: relative; }
   /* A ruler, because a strip with holes in it is only readable against time. */
   #tlRuler { position: relative; height: 15px; margin-bottom: 3px;
-    border-bottom: 1px solid var(--line); }
+    border-bottom: 1px solid var(--line); cursor: ew-resize; }
+  #tlScale { cursor: ew-resize; }
+  .tlblk { cursor: grab; }
   #tlRuler .tk { position: absolute; bottom: 0; width: 1px; height: 5px; background: #2b3140; }
   #tlRuler .tk.big { height: 9px; background: #3a4150; }
   #tlRuler .lb { position: absolute; bottom: 1px; font-size: 9px; color: var(--muted);
@@ -791,7 +793,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.6.3";
-const APP_BUILT = "2026-10-14 04:19 UTC";
+const APP_BUILT = "2026-10-14 04:24 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -3970,9 +3972,12 @@ $("tlBlocks").addEventListener("pointerdown", (e) => {
   tlDrag = { b, el, edge: e.target.dataset.edge || null, x0: e.clientX, rect,
              perPx: tlSpan(ed) / Math.max(1, rect.width),
              at0: Math.max(0, b.at || 0), in0: r.in, out0: r.out, moved: false,
-             // Everything a drag can land on: the other blocks' edges and zero.
-             snaps: [0].concat(editLayout(ed).filter(s => s.b !== b)
-                                             .flatMap(s => [s.t0, s.t0 + s.dur])) };
+             // Everything a drag can land on: the playhead, the other blocks'
+             // edges, and zero. The playhead first, because parking it where
+             // you want the cut and dragging the edge onto it is how you cut
+             // to a frame you have actually looked at.
+             snaps: [clock.t, 0].concat(editLayout(ed).filter(s => s.b !== b)
+                                                      .flatMap(s => [s.t0, s.t0 + s.dur])) };
   el.classList.add("dragging");
   el.setPointerCapture(e.pointerId);
   renderTimeline();
@@ -4043,6 +4048,33 @@ function endTlDrag() {
 }
 $("tlBlocks").addEventListener("pointerup", endTlDrag);
 $("tlBlocks").addEventListener("pointercancel", endTlDrag);
+
+// The playhead is draggable, the way it is in every editor: press anywhere on
+// the ruler or on bare track and the time follows the pointer. Blocks keep
+// their own gesture, so a drag that starts on one is still a move or a trim.
+let tlScrubbing = false;
+function tlTimeAt(clientX) {
+  const ed = currentEdit();
+  if (!ed) return 0;
+  const rect = $("tlTrack").getBoundingClientRect();
+  const t = ((clientX - rect.left) / Math.max(1, rect.width)) * tlSpan(ed);
+  return clampTo(t, 0, editDuration(ed));
+}
+$("tlScale").addEventListener("pointerdown", (e) => {
+  if (e.target.closest(".tlblk")) return;
+  const ed = currentEdit();
+  if (!ed || editDuration(ed) <= 0) return;
+  tlScrubbing = true;
+  $("tlScale").setPointerCapture(e.pointerId);
+  seekTo(tlTimeAt(e.clientX));
+  e.preventDefault();
+});
+$("tlScale").addEventListener("pointermove", (e) => {
+  if (tlScrubbing) seekTo(tlTimeAt(e.clientX));
+});
+const endTlScrub = () => { tlScrubbing = false; };
+$("tlScale").addEventListener("pointerup", endTlScrub);
+$("tlScale").addEventListener("pointercancel", endTlScrub);
 
 // Dropping a take in, at the point you dropped it.
 ["dragenter", "dragover"].forEach(ev => $("tlTrack").addEventListener(ev, (e) => {
