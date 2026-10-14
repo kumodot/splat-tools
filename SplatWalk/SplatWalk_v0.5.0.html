@@ -26,8 +26,10 @@
     --hdr: 74px;
     --statusH: 26px;
     --transportH: 34px;
-    --rightW: 311px;
-    --tlH: 302px;
+    --rightPanelW: 311px;
+    --tlPanelH: 302px;
+    --rightW: var(--rightPanelW);   /* space reserved; zero when put away */
+    --tlH: var(--tlPanelH);
     --propsFlex: 0.351;
     --layersFlex: 0.649;
   }
@@ -47,12 +49,12 @@
   #topbar .zonetoggles label { display: flex; align-items: center; gap: 4px;
     font-size: 11px; color: var(--muted); cursor: pointer; }
 
-  #right { top: var(--hdr); right: 0; bottom: var(--statusH); width: var(--rightW);
+  #right { top: var(--hdr); right: 0; bottom: var(--statusH); width: var(--rightPanelW);
     border-width: 0 0 0 1px; display: flex; flex-direction: column; }
   #props  { flex: var(--propsFlex); overflow-y: auto; min-height: 0; }
   #layers { flex: var(--layersFlex); overflow-y: auto; min-height: 0; }
 
-  #timeline { left: 0; right: var(--rightW); height: var(--tlH);
+  #timeline { left: 0; right: var(--rightW); height: var(--tlPanelH);
     bottom: calc(var(--statusH) + var(--transportH)); border-width: 1px 1px 0 0;
     display: flex; flex-direction: column; }
   #tlBody { flex: 1; min-height: 0; overflow: auto; display: flex;
@@ -71,10 +73,12 @@
 
   /* Hidden zones slide out and leave a sliver to pull them back by. Setting
      the width or height variable to zero is what lets the neighbours reflow. */
-  body.noright  { --rightW: 0px; }
-  body.noright  #right    { transform: translateX(100%); }
-  body.notl     #timeline { transform: translateY(calc(100% + var(--transportH) + 2px)); }
-  body.notl     { --tlH: 0px; }
+  body.noright { --rightW: 0px; }
+  body.notl    { --tlH: 0px; }
+  body.noright #right    { transform: translateX(100%); }
+  body.notl    #timeline { transform: translateY(calc(100% + var(--transportH) + 4px)); }
+  /* Nothing may lag behind the finger during a drag. */
+  body.dragging-zone .zone, body.dragging-zone .zonetab { transition: none; }
 
   /* Every zone that can be hidden carries its own way to hide itself. A
      control that only lives in the top bar means crossing the screen to close
@@ -88,16 +92,24 @@
     font-size: 11px; line-height: 1; padding: 3px 6px; border-radius: 3px; }
   .zoneclose:hover { color: var(--accent); background: #171a21; }
 
-  /* Put away and bring back are the same control in the same place. A close
-     button in the far corner and a reopen tab somewhere else are two things to
-     learn for one job, and the cursor has to travel between them. The arrow is
-     the only part that changes. */
-  .zonetab { position: fixed; z-index: 13; background: var(--panel);
-    border: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1;
-    padding: 7px 5px; cursor: pointer; }
-  .zonetab:hover { color: var(--accent); border-color: var(--accent); }
-  #tabRight { right: 0; top: calc(var(--hdr) + 12px);
+  /* The tab is a handle on the edge of its own panel, not a button parked at
+     the edge of the screen. It is anchored to the space the panel reserves, so
+     when the panel goes the tab rides out with it and ends up flush against the
+     edge; when the panel comes back the tab travels in ahead of it. Clicking
+     toggles, dragging pulls the panel along behind your finger, and the arrow
+     always points at where the panel is about to go. Both zones get exactly
+     the same control, turned ninety degrees. */
+  .zonetab { position: fixed; z-index: 15; background: var(--panel); padding: 0;
+    border: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: right 0.18s ease, bottom 0.18s ease; }
+  .zonetab:hover, .zonetab.dragging { color: var(--accent); border-color: var(--accent); }
+  #tabRight { right: var(--rightW); top: calc(var(--hdr) + 54px);
+    width: 15px; height: 46px; cursor: ew-resize;
     border-right: none; border-radius: 5px 0 0 5px; }
+  #tabTl { bottom: calc(var(--statusH) + var(--transportH) + var(--tlH));
+    left: 54px; width: 46px; height: 15px; cursor: ns-resize;
+    border-bottom: none; border-radius: 5px 5px 0 0; }
 
   /* Drag handles sit on the edge they move. The element itself is the hit area
      and is deliberately wider than it looks, because an edge you have to hit
@@ -309,6 +321,7 @@
     <span class="zonetoggles">
       <label title="Show the timeline"><input type="checkbox" id="tgTl"> Timeline</label>
       <label title="Show the right column (1)"><input type="checkbox" id="tgRight" checked> Panel</label>
+      <label title="Show the controls card (H)"><input type="checkbox" id="tgHelp" checked> Controls</label>
     </span>
     <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
     <button class="small" id="aboutBtn">About</button>
@@ -456,7 +469,6 @@
 </div>
 
 <div id="transport" class="zone">
-  <button class="small" id="tgTlBtn" title="Show or hide the timeline">&#9650;</button>
   <button class="small" id="tpPlay" title="Play the current take or shot" disabled>&#9205;</button>
   <span class="tcode" id="tpTime">0:00.00</span>
   <input type="range" id="tpScrub" min="0" max="1000" value="0" disabled>
@@ -465,11 +477,11 @@
 
 <div id="status">Ready.</div>
 
-<button class="zonetab" id="tabRight" title="Show the panel">&#9666;</button>
+<button class="zonetab" id="tabRight"></button>
+<button class="zonetab" id="tabTl"></button>
 <div id="gripRight" class="grip" title="Drag to resize. Double-click to reset."></div>
 <div id="gripTl" class="grip" title="Drag to resize. Double-click to reset."></div>
 
-<button id="helpBtn" class="small" title="Show controls (H)">Controls</button>
 <div id="help">
   <div class="col">
     <h4>Desktop</h4>
@@ -1313,28 +1325,32 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 // ---------------------------------------------------------------------------
 const LS_LAYOUT = "splatwalk.layout2";
 const LS_FOLDS = "splatwalk.folds";
-const LAYOUT_DEFAULTS = { rightW: 311, tlH: 302, propsFlex: 0.351, noright: false, notl: true };
+const LAYOUT_DEFAULTS = { rightW: 311, tlH: 302, propsFlex: 0.351, noright: false, notl: true, nohelp: false };
+const RIGHT_MIN = 240, TL_MIN = 90;
 const layout = { ...LAYOUT_DEFAULTS };
 const cl = (v, a, b) => v < a ? a : v > b ? b : v;
 
 function applyLayout() {
   const s = document.documentElement.style;
-  s.setProperty("--rightW", Math.round(layout.rightW) + "px");
-  s.setProperty("--tlH", Math.round(layout.tlH) + "px");
+  s.setProperty("--rightPanelW", Math.round(layout.rightW) + "px");
+  s.setProperty("--tlPanelH", Math.round(layout.tlH) + "px");
   s.setProperty("--propsFlex", layout.propsFlex.toFixed(3));
   s.setProperty("--layersFlex", (1 - layout.propsFlex).toFixed(3));
   document.body.classList.toggle("noright", !!layout.noright);
   document.body.classList.toggle("notl", !!layout.notl);
-  const r = $("tgRight"), t = $("tgTl");
+  const r = $("tgRight"), t = $("tgTl"), h = $("tgHelp");
   if (r) r.checked = !layout.noright;
   if (t) t.checked = !layout.notl;
-  // The arrow points where the panel will go, so it reads the same whichever
-  // state it is in: out to the right, down to the bottom.
-  const tr = $("tabRight"), tt = $("tgTlBtn");
+  if (h) h.checked = !layout.nohelp;
+  $("help").classList.toggle("hidden", !!layout.nohelp);
+  // The arrow points at where the panel is about to go: out towards the edge
+  // when it is in, back towards the middle when it is out. Same reading on
+  // both tabs, one turned ninety degrees from the other.
+  const tr = $("tabRight"), tt = $("tabTl");
   if (tr) { tr.innerHTML = layout.noright ? "&#9666;" : "&#9656;";
-            tr.title = layout.noright ? "Show the panel" : "Hide the panel"; }
+            tr.title = layout.noright ? "Pull the panel out (drag or click)" : "Push the panel away (drag or click)"; }
   if (tt) { tt.innerHTML = layout.notl ? "&#9650;" : "&#9660;";
-            tt.title = layout.notl ? "Show the timeline" : "Hide the timeline"; }
+            tt.title = layout.notl ? "Pull the timeline up (drag or click)" : "Push the timeline down (drag or click)"; }
 }
 function saveLayout(patch) {
   if (patch) Object.assign(layout, patch);
@@ -1391,8 +1407,60 @@ $("gripProps").addEventListener("dblclick", resetGrip("propsFlex"));
 
 $("tgRight").onchange = (e) => setZone("noright", e.target.checked);
 $("tgTl").onchange = (e) => setZone("notl", e.target.checked);
-$("tabRight").onclick = () => setZone("noright", !!layout.noright);
-$("tgTlBtn").onclick = () => setZone("notl", !!layout.notl);
+// A tab is a handle, not a button: push it and the panel comes with you, the
+// way a drawer does. A press that never really moves is a click, and a click
+// toggles, so the quick way and the physical way are the same control.
+//
+// Dragging past the panel's minimum size does not squash it; it puts it away,
+// and dragging back out brings it in again at the size it had before.
+function makeTab(el, o) {
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("dragging");
+    document.body.classList.add("dragging-zone");
+    const from = o.axis === "x" ? e.clientX : e.clientY;
+    const wasSize = layout[o.key];
+    let far = 0;
+    const move = (ev) => {
+      far = Math.max(far, Math.abs((o.axis === "x" ? ev.clientX : ev.clientY) - from));
+      if (far < 4) return;                       // still a click, not a drag yet
+      const want = o.sizeAt(ev);
+      if (want < o.min * 0.65) {
+        if (!layout[o.flag]) { layout[o.flag] = true; layout[o.key] = wasSize; applyLayout(); }
+      } else {
+        layout[o.flag] = false;
+        layout[o.key] = cl(want, o.min, o.max());
+        applyLayout();
+      }
+    };
+    const up = (ev) => {
+      el.classList.remove("dragging");
+      document.body.classList.remove("dragging-zone");
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      try { el.releasePointerCapture(ev.pointerId); } catch {}
+      if (far < 4) { layout[o.flag] = !layout[o.flag]; applyLayout(); }
+      saveLayout();
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  });
+}
+makeTab($("tabRight"), {
+  axis: "x", key: "rightW", flag: "noright", min: RIGHT_MIN,
+  max: () => Math.max(RIGHT_MIN, Math.min(640, innerWidth - 260)),
+  sizeAt: (e) => innerWidth - e.clientX,
+});
+makeTab($("tabTl"), {
+  axis: "y", key: "tlH", flag: "notl", min: TL_MIN,
+  max: () => Math.max(TL_MIN, innerHeight - hdrPx() - chromePx() - 140),
+  sizeAt: (e) => innerHeight - e.clientY - chromePx(),
+});
+$("tgHelp").onchange = (e) => { layout.nohelp = !e.target.checked; applyLayout(); saveLayout(); };
+function setHelp(on) { layout.nohelp = !on; applyLayout(); saveLayout(); }
 
 // Clicking a section heading folds it away. Cheapest height there is.
 document.querySelectorAll("#props section h2, #layers section h2").forEach((h2, i) => {
@@ -1533,10 +1601,10 @@ $("shotRecord").onclick = () => {
   shot.curve ? playShot(true) : startRecording();     // no path: just record the live view
 };
 
-$("helpBtn").onclick = () => $("help").classList.toggle("hidden");
+
 addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
-  if (e.code === "KeyH") $("help").classList.toggle("hidden");
+  if (e.code === "KeyH") setHelp($("help").classList.contains("hidden"));
   if (e.code === "KeyK") addWaypoint();
   if (e.code === "KeyP") shot.playing ? stopShot() : playShot(false);
   if (e.code === "KeyR") $("shotRecord").click();
