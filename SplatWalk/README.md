@@ -4,7 +4,7 @@ Walk inside Gaussian Splat scenes on a Meta Quest 3 (WebXR) or on the desktop.
 Single HTML file, no build step, no APK. Loads `.ply` / `.spz` / `.splat` / `.ksplat` / `.sog`,
 lets you place several splats in one space, and saves projects in the browser.
 
-Current version: **v0.4.3** (`SplatWalk_v0.4.3.html`). The version is in the file name, the panel header,
+Current version: **v0.5.0** (`SplatWalk_v0.5.0.html`). The version is in the file name, the panel header,
 the About dialog and the in-VR HUD, so you always know which build you are looking at.
 Older builds live in `../archive/SplatWalk/`; `serve.py` always opens the newest one here.
 
@@ -19,7 +19,7 @@ Built with [three.js](https://threejs.org) and [Spark](https://sparkjs.dev) (bot
 
 ```
 SplatWalk/
-  SplatWalk_v0.4.3.html     the app (older builds are in ../archive/SplatWalk/)
+  SplatWalk_v0.5.0.html     the app (older builds are in ../archive/SplatWalk/)
   vendor/                   three.js + Spark (local copies, no CDN)
   splats/                   optional: drop files here and load them by URL (splats/name.spz)
   tools/                    splat_prep: shrink huge PLYs down to headset size (see below)
@@ -30,7 +30,7 @@ SplatWalk/
 
 ## Desktop test
 
-Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.4.3.html`.
+Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.5.0.html`.
 
 - Drag to look, `WASD` move, `Q`/`E` down/up, `Shift` fast, mouse wheel forward/back
 - `+ Add files` or drag-and-drop splat files onto the page
@@ -47,10 +47,10 @@ Pick one:
    Release asset into **Add URL**.
 2. **adb reverse (fastest iteration).** Developer mode on the headset, USB cable, then on the PC:
    `adb reverse tcp:8080 tcp:8080` and run `run_SplatWalk.bat`. In the Quest browser open
-   `http://localhost:8080/SplatWalk_v0.4.3.html`. `localhost` counts as secure, so VR works.
+   `http://localhost:8080/SplatWalk_v0.5.0.html`. `localhost` counts as secure, so VR works.
 3. **Self-signed https on the LAN.** Create a cert once (Git for Windows has openssl):
    `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=splatwalk"`
-   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.4.3.html` on the headset.
+   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.5.0.html` on the headset.
    Accept the certificate warning once. Option 1 makes this one unnecessary in practice.
 
 Put the headset on, press **Enter VR**.
@@ -125,6 +125,33 @@ Also worth knowing: **scale is usually already correct.** Photogrammetry scenes 
 If a scene feels like it needs a scale of 100, that is almost always the junk-splat halo confusing the
 LOD system rather than a real scale problem. Run it through `tools/splat_prep` with `--percentile-crop 1`
 instead of scaling it up.
+
+## Layout
+
+The canvas is the background and it is always the full window. Every panel floats
+over it, which is why opening and closing one is instant: a panel that was a real
+box in a grid would resize the WebGL drawing buffer on every drag of a divider,
+and that hitches.
+
+| Zone | What it is |
+|---|---|
+| Top bar | Name, version, which zones are showing, full screen |
+| Right column | Properties on top, the splat list and controls below, divider between them |
+| Timeline | Empty for now. Takes will be laid out here, and the curve editor for one take is a mode of this same panel |
+| Transport | Play and scrub, always in the same place whether the timeline is open or not |
+| Status bar | Full width along the bottom |
+
+Every divider drags and remembers where you left it, and double-clicking one puts
+it back. The checkboxes in the top bar slide the right column and the timeline off
+screen, leaving a small tab at the edge to pull them back. **Full screen** (or `0`)
+takes everything away, including the tabs, and `Esc` brings it all back.
+
+Hiding the right column widens the timeline and the transport into the space
+rather than leaving a hole: the whole layout is four CSS variables, and hiding a
+zone sets its variable to zero.
+
+None of this applies inside VR, where the headset shows the in-VR HUD instead of
+the page.
 
 ## Cine mode: flythroughs worth recording
 
