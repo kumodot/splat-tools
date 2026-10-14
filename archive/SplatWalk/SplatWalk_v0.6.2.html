@@ -71,7 +71,18 @@
   #timeline { left: 0; right: var(--rightW); height: var(--tlPanelH);
     bottom: calc(var(--statusH) + var(--transportH)); border-width: 1px 1px 0 0;
     display: flex; flex-direction: column; }
-  #tlBody { flex: 1; min-height: 0; overflow: auto; padding: 9px 10px; font-size: 12px; }
+  /* Two columns: the strip, and the output settings for whatever it is
+     showing. The render belongs beside the thing it renders, not loose in the
+     middle of the right column between a splat list and a camera. */
+  #tlBody { flex: 1; min-height: 0; display: flex; font-size: 12px; }
+  #tlMain { flex: 1; min-width: 0; overflow: auto; padding: 9px 10px; }
+  #tlOut { flex: 0 0 168px; overflow-y: auto; padding: 9px 10px;
+    border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
+  #tlOut .outhead { font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 1px; }
+  #tlOut select, #tlOut button { width: 100%; }
+  #tlOut label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  #tlOut #estimate { line-height: 1.45; }
   #tlEmpty { color: var(--muted); text-align: center; padding: 20px 10px; }
   #tlScale { position: relative; }
   /* A ruler, because a strip with holes in it is only readable against time. */
@@ -537,35 +548,6 @@
       <span class="hint" id="motionHint" style="flex:1"></span>
     </div>
     <div id="takeList"></div>
-    <div class="row" style="margin-top:8px">
-      <label class="hint" style="flex:0 0 auto">Size</label>
-      <select id="bakeRes">
-        <option value="1280x720">1280 x 720</option>
-        <option value="1920x1080" selected>1920 x 1080</option>
-        <option value="2560x1440">2560 x 1440</option>
-        <option value="3840x2160">3840 x 2160 (4K)</option>
-        <option value="1080x1920">1080 x 1920 (vertical)</option>
-        <option value="1080x1080">1080 x 1080 (square)</option>
-      </select>
-      <select id="bakeFps" style="flex:0 0 auto">
-        <option value="24">24 fps</option>
-        <option value="30">30 fps</option>
-        <option value="60" selected>60 fps</option>
-      </select>
-    </div>
-    <div class="row">
-      <label class="hint" style="flex:0 0 auto">Format</label>
-      <select id="bakeFormat">
-        <option value="mp4" selected>MP4 (H.264)</option>
-        <option value="png">PNG sequence</option>
-        <option value="jpg">JPG sequence</option>
-      </select>
-      <label title="Render at double size and downsample. Slower, cleaner edges."><input type="checkbox" id="bakeSS"> 2x</label>
-    </div>
-    <div class="row tight">
-      <button class="primary small" id="bakeBtn">Render</button>
-      <span id="estimate" style="flex:1"></span>
-    </div>
   </section>
 
   <section>
@@ -660,11 +642,37 @@
     <span class="tlinfo" id="tlInfo"></span>
   </div>
   <div id="tlBody">
-    <div id="tlEmpty"></div>
-    <div id="tlScale">
-      <div id="tlRuler"></div>
-      <div id="tlTrack"><div id="tlBlocks"></div></div>
-      <div id="tlHead"></div>
+    <div id="tlMain">
+      <div id="tlEmpty"></div>
+      <div id="tlScale">
+        <div id="tlRuler"></div>
+        <div id="tlTrack"><div id="tlBlocks"></div></div>
+        <div id="tlHead"></div>
+      </div>
+    </div>
+    <div id="tlOut">
+      <div class="outhead">Output</div>
+      <select id="bakeRes" title="Frame size">
+        <option value="1280x720">1280 x 720</option>
+        <option value="1920x1080" selected>1920 x 1080</option>
+        <option value="2560x1440">2560 x 1440</option>
+        <option value="3840x2160">3840 x 2160 (4K)</option>
+        <option value="1080x1920">1080 x 1920 (vertical)</option>
+        <option value="1080x1080">1080 x 1080 (square)</option>
+      </select>
+      <select id="bakeFps" title="Frame rate">
+        <option value="24">24 fps</option>
+        <option value="30">30 fps</option>
+        <option value="60" selected>60 fps</option>
+      </select>
+      <select id="bakeFormat" title="File format">
+        <option value="mp4" selected>MP4 (H.264)</option>
+        <option value="png">PNG sequence</option>
+        <option value="jpg">JPG sequence</option>
+      </select>
+      <label title="Render at double size and downsample. Slower, cleaner edges."><input type="checkbox" id="bakeSS"> 2x supersample</label>
+      <button class="primary small" id="bakeBtn">Render</button>
+      <span id="estimate"></span>
     </div>
   </div>
 </div>
@@ -783,7 +791,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.6.2";
-const APP_BUILT = "2026-10-14 04:14 UTC";
+const APP_BUILT = "2026-10-14 04:19 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -1615,7 +1623,9 @@ const LS_LAYOUT = "splatwalk.layout2";
 const LS_FOLDS = "splatwalk.folds";
 // Properties carries the whole of a splat's transform now, so it starts tall
 // enough to show it without a scroll on a 900px screen.
-const LAYOUT_DEFAULTS = { rightW: 311, tlH: 180, propsFlex: 0.42, noright: false, notl: true, nohelp: false };
+// Tall enough for the Output column to stand without scrolling, since the
+// timeline carries the render now.
+const LAYOUT_DEFAULTS = { rightW: 311, tlH: 228, propsFlex: 0.42, noright: false, notl: false, nohelp: false };
 const RIGHT_MIN = 240, TL_MIN = 90;
 const layout = { ...LAYOUT_DEFAULTS };
 const cl = (v, a, b) => v < a ? a : v > b ? b : v;
