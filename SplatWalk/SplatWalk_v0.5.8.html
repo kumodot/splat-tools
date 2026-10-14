@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.5.7</title>
+<title>SplatWalk v0.5.8</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -23,7 +23,7 @@
      timeline and the transport grow into the space on their own.
      --------------------------------------------------------------------- */
   :root {
-    --hdr: 74px;
+    --hdr: 38px;
     --statusH: 26px;
     --transportH: 34px;
     --rightPanelW: 311px;
@@ -36,13 +36,27 @@
   .zone { position: fixed; z-index: 10; background: var(--panel); backdrop-filter: blur(6px);
     border: 1px solid var(--line); transition: transform 0.18s ease; }
 
+  /* One row, and a quiet one. Two rows with a hole in the middle spent a
+     tenth of the window on six buttons, most of which are pressed once a
+     session; those live in a menu now and the bar keeps what you reach for. */
   #topbar { top: 0; left: 0; right: 0; height: var(--hdr); border-width: 0 0 1px;
-    display: flex; flex-direction: column; justify-content: center; gap: 4px;
-    padding: 0 14px; z-index: 12; }
-  .tbrow { display: flex; align-items: center; gap: 6px; min-width: 0; }
-  .tbrow > select { flex: 0 1 200px; min-width: 90px; }
-  .tbrow .sep { flex: 0 0 1px; height: 16px; background: var(--line); margin: 0 4px; }
-  #topbar h1 { font-size: 16px; margin: 0; letter-spacing: 0.5px; }
+    display: flex; align-items: center; gap: 6px; padding: 0 10px; z-index: 12; }
+  #topbar > select { flex: 0 1 180px; min-width: 90px; }
+  #topbar .sep { flex: 0 0 1px; align-self: stretch; margin: 7px 5px;
+    background: var(--line); }
+  #topbar h1 { font-size: 13px; margin: 0; letter-spacing: 0.4px; flex: 0 0 auto; }
+  #topbar .ver { font-size: 11px; }
+  #topbar .zonetoggles label { white-space: nowrap; }
+  #dots { flex: 0 0 auto; padding: 3px 7px; letter-spacing: 1px; }
+
+  /* The rarely-pressed project actions. They are the real buttons, moved
+     inside the panel rather than copies, so every handler still works. */
+  .menu { position: fixed; z-index: 20; display: none; flex-direction: column;
+    gap: 3px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px; min-width: 168px; backdrop-filter: blur(6px); }
+  .menu.open { display: flex; }
+  .menu button { width: 100%; text-align: left; }
+  .menu .rule { height: 1px; background: var(--line); margin: 3px 1px; }
   #topbar .ver { color: var(--accent); font-weight: 600; font-size: 12px; }
   #topbar .spacer { flex: 1; }
   #topbar .zonetoggles { display: flex; gap: 4px; align-items: center; }
@@ -88,7 +102,9 @@
   #status { position: fixed; left: 0; right: 0; bottom: 0; height: var(--statusH); z-index: 11;
     padding: 0 14px; display: flex; align-items: center; font-size: 12px; color: var(--muted);
     background: var(--panel); border-top: 1px solid var(--line); backdrop-filter: blur(6px); }
-  #status.busy { color: var(--accent2); }
+  #statusText.busy { color: var(--accent2); }
+  #status .spacer { flex: 1; }
+  #status #autosaveHint { flex: 0 0 auto; font-size: 11px; opacity: 0.75; }
 
   /* Hidden zones slide out and leave a sliver to pull them back by. Setting
      the width or height variable to zero is what lets the neighbours reflow. */
@@ -378,32 +394,34 @@
 <body>
 
 <div id="topbar" class="zone">
-  <div class="tbrow">
-    <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.5.7</span>
-    <span class="sep"></span>
-    <label class="hint" style="flex:0 0 auto">Project</label>
-    <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
-    <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
-    <button class="small" id="saveAsBtn" title="Save a copy under a new name">Save as</button>
-    <button class="small" id="newProjectBtn" title="Start an empty project">New</button>
-    <button class="small warn" id="deleteProjectBtn" title="Delete this project">Del</button>
-    <span class="spacer"></span>
-    <span class="hint" id="autosaveHint">autosave on</span>
-  </div>
-  <div class="tbrow">
-    <button class="small" id="exportBtn">Export JSON</button>
-    <button class="small" id="importBtn">Import JSON</button>
-    <input type="file" id="importInput" accept=".json" style="display:none">
-    <button class="small" id="saveViewBtn" title="Store current viewer position as the project start point">Set start point</button>
-    <span class="spacer"></span>
-    <span class="zonetoggles">
-      <label title="Show the timeline"><input type="checkbox" id="tgTl"> Timeline</label>
-      <label title="Show the right column (1)"><input type="checkbox" id="tgRight" checked> Panel</label>
-      <label title="Show the keyboard shortcuts card (H)"><input type="checkbox" id="tgHelp" checked> Shortcuts</label>
-    </span>
-    <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
-    <button class="small" id="aboutBtn">About</button>
-  </div>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.5.8</span>
+  <span class="sep"></span>
+  <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
+  <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
+  <button class="small" id="dots" title="Project actions">&hellip;</button>
+  <span class="spacer"></span>
+  <span class="sep"></span>
+  <span class="zonetoggles">
+    <label title="Show the timeline"><input type="checkbox" id="tgTl"> Timeline</label>
+    <label title="Show the right column (1)"><input type="checkbox" id="tgRight" checked> Panel</label>
+    <label title="Show the keyboard shortcuts card (H)"><input type="checkbox" id="tgHelp" checked> Shortcuts</label>
+  </span>
+  <span class="sep"></span>
+  <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
+  <button class="small" id="aboutBtn">About</button>
+</div>
+
+<div class="menu" id="projMenu">
+  <button class="small" id="saveAsBtn" title="Save a copy under a new name">Save as&hellip;</button>
+  <button class="small" id="newProjectBtn" title="Start an empty project">New project</button>
+  <div class="rule"></div>
+  <button class="small" id="exportBtn">Export JSON</button>
+  <button class="small" id="importBtn">Import JSON</button>
+  <input type="file" id="importInput" accept=".json" style="display:none">
+  <div class="rule"></div>
+  <button class="small" id="saveViewBtn" title="Store current viewer position as the project start point">Set start point</button>
+  <div class="rule"></div>
+  <button class="small warn" id="deleteProjectBtn" title="Delete this project">Delete project</button>
 </div>
 
 <div id="right" class="zone">
@@ -561,7 +579,7 @@
   <span class="tcode" id="tpTotal">0:00.00</span>
 </div>
 
-<div id="status">Ready.</div>
+<div id="status"><span id="statusText">Ready.</span><span class="spacer"></span><span id="autosaveHint"></span></div>
 
 <button class="zonetab" id="tabRight"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2 L9 6 L4 10 Z"/></svg></button>
 <button class="zonetab" id="tabTl"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2 L9 6 L4 10 Z"/></svg></button>
@@ -636,7 +654,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.5.7</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.5.8</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -664,8 +682,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.5.7";
-const APP_BUILT = "2026-10-14 02:48 UTC";
+const APP_VERSION = "0.5.8";
+const APP_BUILT = "2026-10-14 02:54 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -674,7 +692,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.5.7, so a reload could not tell you whether you
+// changes all shipped as v0.5.8, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1227,7 +1245,7 @@ async function loadProject(name) {
                      enabled: t.enabled !== false, fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.5.7 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.5.8 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1329,7 +1347,9 @@ async function importProject(file) {
 // ---------------------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
 const itemsEl = $("items");
-const statusEl = $("status");
+// The status bar carries the autosave note at its far end now, so the message
+// goes into its own span rather than replacing the bar's whole contents.
+const statusEl = $("statusText");
 
 function setStatus(msg, busy = false) {
   statusEl.textContent = msg;
@@ -1743,6 +1763,21 @@ function escapeHatch() {
   if (cursorPinned) toggleCursor();
   $("modal").classList.remove("open");
 }
+// Anchored to the button each time it opens, so it follows if the bar reflows.
+const projMenu = $("projMenu");
+function closeMenu() { projMenu.classList.remove("open"); }
+$("dots").onclick = (e) => {
+  e.stopPropagation();
+  const open = projMenu.classList.toggle("open");
+  if (!open) return;
+  const r = $("dots").getBoundingClientRect();
+  projMenu.style.top = (r.bottom + 4) + "px";
+  projMenu.style.left = Math.max(6, Math.min(r.left, innerWidth - projMenu.offsetWidth - 6)) + "px";
+};
+projMenu.addEventListener("click", (e) => { if (e.target.tagName === "BUTTON") closeMenu(); });
+addEventListener("pointerdown", (e) => { if (!projMenu.contains(e.target) && e.target !== $("dots")) closeMenu(); });
+addEventListener("keydown", (e) => { if (e.code === "Escape") closeMenu(); });
+
 $("aboutBtn").onclick = () => $("modal").classList.add("open");
 $("closeModal").onclick = () => $("modal").classList.remove("open");
 $("modal").onclick = (e) => { if (e.target === $("modal")) $("modal").classList.remove("open"); };
