@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.5.2</title>
+<title>SplatWalk v0.5.3</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -344,7 +344,7 @@
 
 <div id="topbar" class="zone">
   <div class="tbrow">
-    <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.5.2</span>
+    <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.5.3</span>
     <span class="sep"></span>
     <label class="hint" style="flex:0 0 auto">Project</label>
     <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
@@ -598,7 +598,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.5.2</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.5.3</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -626,8 +626,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.5.2";
-const APP_BUILT = "2026-10-14 02:23 UTC";
+const APP_VERSION = "0.5.3";
+const APP_BUILT = "2026-10-14 02:28 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -636,7 +636,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.5.2, so a reload could not tell you whether you
+// changes all shipped as v0.5.3, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1189,7 +1189,7 @@ async function loadProject(name) {
                      enabled: t.enabled !== false, fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.5.2 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.5.3 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -3114,7 +3114,20 @@ $("tpScrub").oninput = (e) => {
   $("tpTime").textContent = fmtClock(t);
 };
 
-$("tlTarget").onchange = (e) => { tlTarget = e.target.value; updateTransport(); };
+// Loading something into the transport puts you at the start of it. Choosing a
+// take and being left wherever you happened to be standing tells you nothing
+// about what you just selected, and the first thing you would do by hand is
+// press play to find out where it begins.
+$("tlTarget").onchange = (e) => {
+  tlTarget = e.target.value;
+  updateTransport();
+  if (motionRec || bakeState.running) return;       // mid-take or mid-render, stay put
+  if (takePreview) { takePreview = null; updateTakeUi(); }
+  if (shot.playing) stopShot();
+  const take = currentTake();
+  if (take) { cine.mode = "free"; applyPose(sampleTake(take, 0)); setStatus(`Loaded "${take.name}", at its first frame.`); }
+  else if (tlTarget === "shot" && shot.points.length) goToWaypoint(0);
+};
 $("tpPlay").onclick = () => {
   const take = currentTake();
   if (take) { previewTake(take); return; }
