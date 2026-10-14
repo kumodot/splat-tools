@@ -69,13 +69,13 @@
   .tpicon { width: 10px; height: 10px; display: block; }
   .tpicon path { fill: currentColor; }
   #tpPlay { display: flex; align-items: center; justify-content: center; padding: 4px 7px; }
-  /* The transport outlives the timeline on screen, so when the timeline is put
-     away this label is the only thing saying what Play is about to play. */
-  .tpwhat { flex: 0 1 auto; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; background: none; border: 1px solid transparent; color: var(--text);
-    font-size: 11px; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
-  .tpwhat:hover { border-color: var(--line); color: var(--accent); }
-  .tpwhat.empty { color: var(--muted); font-style: italic; }
+  /* The selector lives here rather than in the timeline, because the transport
+     is the one strip that is always on screen. Putting it in the timeline meant
+     opening a panel just to change what Play plays, which is two steps for one
+     decision, and naming the thing without being able to change it is worse
+     than useless. */
+  #transport select { flex: 0 1 190px; min-width: 110px; height: 21px; padding: 0 4px;
+    font-size: 11px; }
   #transport input[type=range]:not(:disabled) { cursor: pointer; }
   #transport input[type=range] { flex: 1; min-width: 0; }
 
@@ -125,21 +125,29 @@
      characters. A glyph carries the font's own metrics and optical weight, so
      the same nominal arrow does not land the same way at two orientations and
      the pair never quite matches. A path has no opinion. */
-  .zonetab svg { width: 9px; height: 9px; display: block; transition: transform 0.18s ease; }
+  /* Placed absolutely rather than with flex alignment. Flex has to agree about
+     which axis is which on a tab that is tall in one case and wide in the
+     other, and it is one shorthand away from quietly re-centring itself. Two
+     offsets cannot be argued with. */
+  .zonetab svg { position: absolute; width: 9px; height: 9px;
+    transition: transform 0.18s ease; }
   .zonetab svg path { fill: currentColor; }
   .zonetab.pt-right svg { transform: rotate(0deg); }
   .zonetab.pt-down  svg { transform: rotate(90deg); }
   .zonetab.pt-left  svg { transform: rotate(180deg); }
   .zonetab.pt-up    svg { transform: rotate(270deg); }
-  /* The arrow sits at the near corner, not the middle: the top of a vertical
-     tab, the left of a horizontal one. That keeps the rest of the tab free and
-     makes the two read as the same object turned on its side. */
-  #tabRight { right: var(--rightW); top: calc(var(--hdr) + 54px);
-    width: 15px; height: 46px; cursor: ew-resize; align-items: flex-start; padding-top: 4px;
-    border-right: none; border-radius: 5px 0 0 5px; }
+  /* Each tab sits in the corner of the panel it belongs to and squares off
+     against it, so the two read as one piece rather than a button floating
+     near an edge. The arrow then sits in the tab's own near corner: the top of
+     the vertical one, the left of the horizontal one. */
+  #tabRight { right: var(--rightW); top: var(--hdr);
+    width: 15px; height: 46px; cursor: ew-resize;
+    border-right: none; border-radius: 0 0 0 5px; }
+  #tabRight svg { top: 4px; left: 2px; }
   #tabTl { bottom: calc(var(--statusH) + var(--transportH) + var(--tlH));
-    left: 54px; width: 46px; height: 15px; cursor: ns-resize; justify-content: flex-start; padding-left: 4px;
-    border-bottom: none; border-radius: 5px 5px 0 0; }
+    left: 0; width: 46px; height: 15px; cursor: ns-resize;
+    border-bottom: none; border-left: none; border-radius: 0 5px 0 0; }
+  #tabTl svg { left: 4px; top: 2px; }
 
   /* Drag handles sit on the edge they move. The element itself is the hit area
      and is deliberately wider than it looks, because an edge you have to hit
@@ -500,7 +508,6 @@
 <div id="timeline" class="zone">
   <div class="zonehead">
     <span>Timeline</span>
-    <select id="tlTarget" title="What the timeline and the transport below are driving"></select>
     <span class="spacer"></span>
     <span class="tlinfo" id="tlInfo"></span>
   </div>
@@ -510,7 +517,7 @@
 
 <div id="transport" class="zone">
   <button class="small" id="tpPlay" title="Play the current take or shot" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path id="tpIcon" d="M3 2 L10 6 L3 10 Z"/></svg></button>
-  <button class="tpwhat" id="tpWhat" title="What the transport is driving. Click to open the timeline and change it.">nothing selected</button>
+  <select id="tlTarget" title="What the transport and the timeline are driving"></select>
   <span class="tcode" id="tpTime">0:00.00</span>
   <input type="range" id="tpScrub" min="0" max="1000" value="0" disabled>
   <span class="tcode" id="tpTotal">0:00.00</span>
@@ -620,7 +627,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.5.1";
-const APP_BUILT = "2026-10-14 02:16 UTC";
+const APP_BUILT = "2026-10-14 02:23 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -3068,9 +3075,6 @@ function updateTransport() {
   $("tpScrub").disabled = !take;            // takes scrub; a waypoint shot does not yet
   $("tlInfo").textContent = take ? `${procOf(take).pts.length} points`
     : (tlTarget === "shot" ? `${shot.points.length} waypoints` : "");
-  const what = take ? take.name : (tlTarget === "shot" ? "Waypoint shot" : "");
-  $("tpWhat").textContent = what || "nothing selected";
-  $("tpWhat").classList.toggle("empty", !what);
   if (!takePreview && !shot.playing) { $("tpTime").textContent = fmtClock(0); $("tpScrub").value = 0; }
 }
 
@@ -3111,13 +3115,6 @@ $("tpScrub").oninput = (e) => {
 };
 
 $("tlTarget").onchange = (e) => { tlTarget = e.target.value; updateTransport(); };
-// The label names what is loaded; the selector that changes it lives in the
-// timeline, so clicking the label fetches the timeline rather than growing a
-// second copy of the same control.
-$("tpWhat").onclick = () => {
-  if (layout.notl) setZone("notl", true);
-  $("tlTarget").focus();
-};
 $("tpPlay").onclick = () => {
   const take = currentTake();
   if (take) { previewTake(take); return; }
