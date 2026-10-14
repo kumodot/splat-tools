@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.6.0</title>
+<title>SplatWalk v0.6.1</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -93,8 +93,11 @@
   .tlblk .edge:hover { background: var(--accent); opacity: 0.45; }
   #tlHead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent);
     pointer-events: none; display: none; }
-  #tlActs { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
-  #tlActs .hint { flex: 1; }
+  /* Block actions sit in the header beside the edit's own, because three
+     verbs floating under an empty strip read as controls for nothing. */
+  #tlActs { display: none; align-items: center; gap: 6px; }
+  #tlActs .tlrule { width: 1px; height: 13px; background: var(--line); margin: 0 3px; }
+  #tlActs .hint { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .zonehead button.small { padding: 1px 7px; font-size: 11px; }
 
   #transport { left: 0; right: var(--rightW); bottom: var(--statusH); height: var(--transportH);
@@ -243,19 +246,50 @@
   input[type=text], input[type=url] { flex: 1; min-width: 0; }
   /* The splat list grows inside its pane; the pane itself is what resizes. */
   #items { min-height: 72px; padding: 8px 10px; }
-  /* Folding a whole section is the other way to win back height. */
-  section h2 { cursor: pointer; user-select: none; }
-  section h2::before { content: "\25BE "; color: var(--line); }
-  section.folded h2::before { content: "\25B8 "; }
+  /* Properties is the one place a selected thing describes itself, so the
+     cards in the lists are now a line each and nothing is written twice. */
+  #props { padding: 10px 12px; }
+  #props .phead { display: flex; align-items: baseline; gap: 7px; margin-bottom: 8px; }
+  #props .phead .pname { font-size: 13px; color: var(--text); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  #props .phead .pkind { font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); flex: 0 0 auto; }
+  #props .takewrap { margin: 0; }
+  /* Takes get the same treatment, so the two lists read as one system. */
+  .takewrap { border: 1px solid #262b36; border-left: 3px solid #262b36; border-radius: 7px;
+    background: #161a22; margin-bottom: 6px; padding: 2px 7px; }
+  .takewrap:hover { background: #1a1f28; }
+  .takewrap.sel { border-color: var(--accent); border-left-color: var(--accent);
+    background: var(--sel); }
+  #props .takewrap { border: 0; background: none; padding: 0; margin: 0; }
+  #props .takefx { border: 0; padding: 0; }
+  /* Folding a whole section is the other way to win back height. The arrow is
+     the same triangle the drawer tabs draw, as an inline SVG rather than a
+     font glyph, so every arrow in the app has one shape and one weight. */
+  section h2 { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
+  section h2::before, .item .fold::before {
+    content: ""; width: 9px; height: 9px; flex: 0 0 9px; display: block;
+    background: no-repeat center/9px 9px
+      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2 4 L10 4 L6 9.5 Z" fill="%236f7684"/></svg>');
+  }
+  section.folded h2::before, .item.shut .fold::before {
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M4 2 L9.5 6 L4 10 Z" fill="%236f7684"/></svg>');
+  }
   section.folded > *:not(h2) { display: none; }
   #itemsBar { position: sticky; top: -8px; z-index: 2; margin: -8px -10px 8px; padding: 6px 10px;
     background: var(--panel); border-bottom: 1px solid var(--line);
     display: flex; align-items: center; gap: 6px; }
   #itemsBar .hint { flex: 1; }
-  .item { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: #13161c; }
-  .item.folded { padding: 5px 8px; }
-  .item.folded .title { margin-bottom: 0; }
-  .item.folded > *:not(.title) { display: none; }
+  /* Every row in the right column is a card with its own ground, because a
+     stack of transparent rows gives you no way to see where one splat ends
+     and the next begins. */
+  .item { border: 1px solid #262b36; border-left: 3px solid #262b36; border-radius: 7px;
+    padding: 5px 8px; margin-bottom: 6px; background: #161a22; }
+  .item:hover { background: #1a1f28; }
+  .item.selected { border-color: var(--accent); border-left-color: var(--accent);
+    background: var(--sel); }
+  .item .title { margin-bottom: 0; }
+  .item > *:not(.title) { display: none; }
   .item .fold { flex: 0 0 auto; padding: 0 4px; line-height: 1; color: var(--muted);
     background: none; border: none; font-size: 11px; }
   .item .fold:hover { color: var(--accent); }
@@ -417,7 +451,7 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.6.0</span>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.6.1</span>
   <span class="sep"></span>
   <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
   <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
@@ -449,11 +483,7 @@
 
 <div id="right" class="zone">
   <div class="zonehead"><span>Properties</span></div>
-  <div id="props">
-  <div class="panelempty">Nothing selected.<br>Pick a splat or a take and its
-    properties appear here.</div>
-
-  </div><!-- /#props -->
+  <div id="props"></div><!-- filled by renderProps -->
 
   <div id="gripProps" class="grip" title="Drag to resize. Double-click to reset."></div>
 
@@ -583,18 +613,19 @@
     <button class="small" id="tlNewEdit" title="Create an edit, then drop takes into it">+ Edit</button>
     <button class="small" id="tlRenameEdit" title="Rename this edit">Rename</button>
     <button class="small warn" id="tlDelEdit" title="Delete this edit. The takes in it are untouched.">Delete</button>
+    <span id="tlActs">
+      <span class="tlrule"></span>
+      <span class="hint" id="tlHint"></span>
+      <button class="small" id="tlBlkDup" title="Another instance of the same take">Duplicate</button>
+      <button class="small" id="tlBlkReset" title="Give this block the whole take again">Reset trim</button>
+      <button class="small warn" id="tlBlkDel" title="Take this block out of the edit">Remove</button>
+    </span>
     <span class="spacer"></span>
     <span class="tlinfo" id="tlInfo"></span>
   </div>
   <div id="tlBody">
     <div id="tlEmpty"></div>
     <div id="tlTrack"><div id="tlBlocks"></div><div id="tlHead"></div></div>
-    <div id="tlActs">
-      <button class="small" id="tlBlkDup" title="Another instance of the same take">Duplicate</button>
-      <button class="small" id="tlBlkReset" title="Give this block the whole take again">Reset trim</button>
-      <button class="small warn" id="tlBlkDel" title="Take this block out of the edit">Remove</button>
-      <span class="hint" id="tlHint"></span>
-    </div>
   </div>
 </div>
 
@@ -683,7 +714,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.6.0</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.6.1</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -711,8 +742,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.6.0";
-const APP_BUILT = "2026-10-14 03:39 UTC";
+const APP_VERSION = "0.6.1";
+const APP_BUILT = "2026-10-14 03:52 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -721,7 +752,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.6.0, so a reload could not tell you whether you
+// changes all shipped as v0.6.1, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1092,7 +1123,7 @@ function ensureStats(dt) {
             groundAndCenter(item);
             placeBeside(item);
             setStatus(`${item.name}: guessed ${item.stats.guess.toUpperCase()}, ${dimsText(item)}. `
-                    + `Wrong? Change "Up axis" in its card.`);
+                    + `Wrong? Change "Up axis" in Properties.`);
           }
         }
         renderItems();
@@ -1276,7 +1307,7 @@ async function loadProject(name) {
                      enabled: t.enabled !== false, fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.6.0 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.6.1 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1421,51 +1452,100 @@ function renderItems() {
     itemsEl.innerHTML = `<div class="empty">No splats yet.<br>Add PLY / SPZ files or drop them here.</div>`;
     return;
   }
-  const allFolded = state.items.every(i => i.folded);
   const bar = `
     <div id="itemsBar">
       <span class="hint">${state.items.length} splat${state.items.length === 1 ? "" : "s"}</span>
-      <button class="small" id="foldAll">${allFolded ? "Expand all" : "Collapse all"}</button>
     </div>`;
+  // One line each. Everything that was in here is in Properties now, so the
+  // list is a list and there is only one place a splat describes itself.
   itemsEl.innerHTML = bar + state.items.map(item => `
-    <div class="item ${item.id === state.selectedId ? "selected" : ""} ${item.folded ? "folded" : ""}" data-id="${item.id}">
+    <div class="item folded ${item.id === state.selectedId ? "selected" : ""}" data-id="${item.id}">
       <div class="title" data-act="select">
-        <button class="fold" data-act="fold" title="${item.folded ? "Expand" : "Collapse"} this splat">${item.folded ? "▸" : "▾"}</button>
         <input type="checkbox" data-act="visible" ${item.visible ? "checked" : ""} title="Visible">
         <span class="name" title="${esc(item.fileName || item.url || "")}">${esc(item.name)}</span>
         <span class="status ${item.status}">${statusText(item)}</span>
       </div>
-      <div class="row tight" style="margin:0 0 6px">
-        <label class="hint" style="flex:0 0 auto">Up axis</label>
-        <select data-act="orient">
-          ${Object.entries(ORIENTATIONS).map(([k, o]) =>
-            `<option value="${k}" ${item.orientation === k ? "selected" : ""}>${o.label}</option>`).join("")}
-          ${item.orientation === "auto" ? `<option value="auto" selected>measuring...</option>` : ""}
-        </select>
-        <button class="small" data-act="ground" title="Drop the floor to y=0 and centre the room on the origin">Ground</button>
-      </div>
-      <div class="meta" style="margin-bottom:6px">${item.stats ? esc(dimsText(item)) : "measuring..."}</div>
-      <div class="grid">
-        <label>Pos</label>
-        <input type="number" step="0.1" data-f="position" data-i="0" value="${item.position[0]}">
-        <input type="number" step="0.1" data-f="position" data-i="1" value="${item.position[1]}">
-        <input type="number" step="0.1" data-f="position" data-i="2" value="${item.position[2]}">
-        <label>Rot</label>
-        <input type="number" step="5" data-f="rotation" data-i="0" value="${item.rotation[0]}">
-        <input type="number" step="5" data-f="rotation" data-i="1" value="${item.rotation[1]}">
-        <input type="number" step="5" data-f="rotation" data-i="2" value="${item.rotation[2]}">
-        <label>Scale</label>
-        <input type="number" step="0.1" min="0.001" data-f="scale" value="${item.scale}">
-        <span class="meta" style="grid-column: span 2">${item.url ? "url" : "file"}: ${esc(item.fileName || item.url || "")}</span>
-      </div>
-      <div class="actions">
-        <button class="small" data-act="goto" title="Teleport the viewer into this splat">Go to</button>
-        <button class="small" data-act="reset" title="Reset transform">Reset</button>
-        <button class="small" data-act="rename">Rename</button>
-        ${item.status === "missing" ? `<button class="small" data-act="relink">Pick file</button>` : ""}
-        <button class="small warn" data-act="remove">Remove</button>
-      </div>
     </div>`).join("");
+  renderProps();
+}
+
+// ---------------------------------------------------------------------------
+// Properties
+//
+// One pane that shows whatever is selected. There are two kinds of selection
+// in this app and they are genuinely different things, so the pane keeps track
+// of which one you touched last rather than guessing.
+// ---------------------------------------------------------------------------
+let propsFocus = "splat";          // "splat" | "clip"
+
+function propsHead(kind, name) {
+  return `<div class="phead"><span class="pkind">${kind}</span><span class="pname">${esc(name)}</span></div>`;
+}
+
+function splatProps(item) {
+  return propsHead("Splat", item.name) + `
+    <div class="row tight" style="margin:0 0 6px">
+      <label class="hint" style="flex:0 0 auto">Up axis</label>
+      <select data-act="orient">
+        ${Object.entries(ORIENTATIONS).map(([k, o]) =>
+          `<option value="${k}" ${item.orientation === k ? "selected" : ""}>${o.label}</option>`).join("")}
+        ${item.orientation === "auto" ? `<option value="auto" selected>measuring...</option>` : ""}
+      </select>
+      <button class="small" data-act="ground" title="Drop the floor to y=0 and centre the room on the origin">Ground</button>
+    </div>
+    <div class="meta" style="margin-bottom:6px">${item.stats ? esc(dimsText(item)) : "measuring..."}</div>
+    <div class="grid">
+      <label>Pos</label>
+      <input type="number" step="0.1" data-f="position" data-i="0" value="${item.position[0]}">
+      <input type="number" step="0.1" data-f="position" data-i="1" value="${item.position[1]}">
+      <input type="number" step="0.1" data-f="position" data-i="2" value="${item.position[2]}">
+      <label>Rot</label>
+      <input type="number" step="5" data-f="rotation" data-i="0" value="${item.rotation[0]}">
+      <input type="number" step="5" data-f="rotation" data-i="1" value="${item.rotation[1]}">
+      <input type="number" step="5" data-f="rotation" data-i="2" value="${item.rotation[2]}">
+      <label>Scale</label>
+      <input type="number" step="0.1" min="0.001" data-f="scale" value="${item.scale}">
+      <span class="meta" style="grid-column: span 2">${item.url ? "url" : "file"}: ${esc(item.fileName || item.url || "")}</span>
+    </div>
+    <div class="actions">
+      <button class="small" data-act="goto" title="Teleport the viewer into this splat">Go to</button>
+      <button class="small" data-act="reset" title="Reset transform">Reset</button>
+      <button class="small" data-act="rename">Rename</button>
+      ${item.status === "missing" ? `<button class="small" data-act="relink">Pick file</button>` : ""}
+      <button class="small warn" data-act="remove">Remove</button>
+    </div>`;
+}
+
+function renderProps() {
+  const el = $("props");
+  if (!el) return;
+  const item = selectedItem();
+  if (propsFocus === "splat" && item) { el.innerHTML = splatProps(item); return; }
+
+  const ed = currentEdit();
+  if (ed) {
+    const l = editLayout(ed);
+    el.innerHTML = propsHead("Edit", ed.name)
+      + `<div class="meta">${l.length} block${l.length === 1 ? "" : "s"} · ${fmtClock(editDuration(ed))}</div>`
+      + `<div class="meta" style="margin-top:6px">Blocks are arranged on the timeline. Their filters
+         belong to the take each one points at, so select the take to change them.</div>`;
+    return;
+  }
+  const take = currentTake();
+  if (take) {
+    // The same markup the take card used, in a wrapper the same handlers
+    // recognise, so there is one implementation of the filters and not two.
+    el.innerHTML = propsHead("Take", take.name)
+      + `<div class="takewrap open" data-tid="${take.id}">${takeCard(take)}</div>`;
+    return;
+  }
+  if (tlTarget === "shot") {
+    el.innerHTML = propsHead("Waypoints", `${shot.points.length} stop${shot.points.length === 1 ? "" : "s"}`)
+      + `<div class="meta">Save them as a take to give them filters, timing and a place in an edit.</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="panelempty">Nothing selected.<br>Pick a splat, a take or an edit and its
+    properties appear here.</div>`;
 }
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
@@ -1483,7 +1563,9 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 // ---------------------------------------------------------------------------
 const LS_LAYOUT = "splatwalk.layout2";
 const LS_FOLDS = "splatwalk.folds";
-const LAYOUT_DEFAULTS = { rightW: 311, tlH: 180, propsFlex: 0.22, noright: false, notl: true, nohelp: false };
+// Properties carries the whole of a splat's transform now, so it starts tall
+// enough to show it without a scroll on a 900px screen.
+const LAYOUT_DEFAULTS = { rightW: 311, tlH: 180, propsFlex: 0.42, noright: false, notl: true, nohelp: false };
 const RIGHT_MIN = 240, TL_MIN = 90;
 const layout = { ...LAYOUT_DEFAULTS };
 const cl = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -1661,20 +1743,22 @@ addEventListener("resize", () => {
 });
 
 itemsEl.addEventListener("click", async (e) => {
-  if (e.target.id === "foldAll") {
-    const expand = state.items.every(i => i.folded);
-    state.items.forEach(i => { i.folded = !expand; });
-    renderItems(); markDirty(); return;
-  }
   const card = e.target.closest(".item"); if (!card) return;
   const item = state.items.find(i => i.id === card.dataset.id); if (!item) return;
   const act = e.target.closest("[data-act]")?.dataset.act;
   if (act === "visible") { item.visible = e.target.checked; applyTransform(item); markDirty(); return; }
-  if (act === "fold") { item.folded = !item.folded; renderItems(); markDirty(); return; }
-  if (act === "select" || !act) { selectItem(item); return; }
+  selectItem(item);
+});
+
+// The splat's own controls live in Properties now, so that is where their
+// handlers listen. Same acts, same field names, one pane.
+$("props").addEventListener("click", async (e) => {
+  const item = selectedItem();
+  if (!item || propsFocus !== "splat") return;
+  const act = e.target.closest("[data-act]")?.dataset.act;
   if (act === "goto") { goToItem(item); return; }
-  if (act === "ground") { groundAndCenter(item); renderItems(); markDirty(); setStatus(`${item.name} grounded: ${dimsText(item)}`); return; }
-  if (act === "reset") { item.position = [0, 0, 0]; setOrientation(item, "y-down"); item.scale = 1; applyTransform(item); renderItems(); markDirty(); return; }
+  if (act === "ground") { groundAndCenter(item); renderProps(); markDirty(); setStatus(`${item.name} grounded: ${dimsText(item)}`); return; }
+  if (act === "reset") { item.position = [0, 0, 0]; setOrientation(item, "y-down"); item.scale = 1; applyTransform(item); renderProps(); markDirty(); return; }
   if (act === "rename") { const n = prompt("Name", item.name); if (n) { item.name = n; renderItems(); markDirty(); } return; }
   if (act === "remove") { if (confirm(`Remove "${item.name}" from this project?`)) await removeItem(item); return; }
   if (act === "relink") {
@@ -1683,20 +1767,19 @@ itemsEl.addEventListener("click", async (e) => {
     inp.click(); return;
   }
 });
-itemsEl.addEventListener("change", (e) => {
+$("props").addEventListener("change", (e) => {
   if (e.target.dataset.act !== "orient") return;
-  const card = e.target.closest(".item");
-  const item = state.items.find(i => i.id === card.dataset.id); if (!item) return;
+  const item = selectedItem(); if (!item) return;
   setOrientation(item, e.target.value);
   groundAndCenter(item);          // a new up axis always needs re-grounding
-  renderItems();
+  renderProps();
   markDirty();
   setStatus(`${item.name}: ${ORIENTATIONS[item.orientation]?.label || item.orientation}, ${dimsText(item)}`);
 });
-
-itemsEl.addEventListener("input", (e) => {
-  const inp = e.target; if (!inp.dataset.f) return;
-  const card = inp.closest(".item"); const item = state.items.find(i => i.id === card.dataset.id); if (!item) return;
+$("props").addEventListener("input", (e) => {
+  const inp = e.target;
+  if (!inp.dataset.f) return;
+  const item = selectedItem(); if (!item) return;
   const v = parseFloat(inp.value); if (Number.isNaN(v)) return;
   if (inp.dataset.f === "scale") item.scale = Math.max(0.001, v);
   else {
@@ -1704,13 +1787,16 @@ itemsEl.addEventListener("input", (e) => {
     if (inp.dataset.f === "rotation") item.orientation = "custom";
   }
   applyTransform(item);
-  const dims = card.querySelector(".meta"); if (dims && item.stats) dims.textContent = dimsText(item);
+  const dims = $("props").querySelector(".meta");
+  if (dims && item.stats) dims.textContent = dimsText(item);
   markDirty();
 });
 
 function selectItem(item) {
   state.selectedId = item?.id || null;
+  propsFocus = "splat";
   for (const card of itemsEl.querySelectorAll(".item")) card.classList.toggle("selected", card.dataset.id === state.selectedId);
+  renderProps();
 }
 function cycleSelection(dir = 1) {
   if (!state.items.length) return;
@@ -3243,20 +3329,19 @@ function updateTakeUi() {
     el.innerHTML = `<div id="takeEmpty">No takes yet. Record a flight, then render it at any size and frame rate.</div>`;
   } else {
     el.innerHTML = takes.map((t, i) => {
-      const open = openTakes.has(t.id);
-      return `<div class="takewrap ${open ? "open" : ""}" data-tid="${t.id}">
+      const sel = tlTarget === "take:" + t.id;
+      return `<div class="takewrap ${sel ? "sel" : ""}" data-tid="${t.id}">
         <div class="take ${takePreview && takePreview.take === t ? "playing" : ""}">
-          <button class="twist" data-tact="twist" title="Filters">${open ? "&#9662;" : "&#9656;"}</button>
           <span class="num">${i + 1}</span>
-          <span class="tname" data-tact="rename" draggable="true" title="Click to rename, drag onto the timeline">${esc(t.name)}</span>
+          <span class="tname" data-tact="pick" draggable="true" title="Click to load it. Drag it onto the timeline.">${esc(t.name)}</span>
           <span class="tinfo" data-tinfo>${takeDuration(t).toFixed(1)}s</span>
           <button class="tbtn" data-tact="play" title="Preview in the viewport">&#9205;</button>
+          <button class="tbtn" data-tact="rename" title="Rename">&#9998;</button>
           <button class="tbtn" data-tact="toedit" title="Add to the edit the timeline is showing">&rarr;</button>
           <button class="tbtn" data-tact="dup" title="Duplicate this clip">&#8862;</button>
           <button class="tbtn" data-tact="up" title="Move up" ${i === 0 ? "disabled" : ""}>&#9650;</button>
           <button class="tbtn del" data-tact="del" title="Delete this take">&times;</button>
         </div>
-        ${open ? takeCard(t) : ""}
       </div>`;
     }).join("");
   }
@@ -3265,6 +3350,7 @@ function updateTakeUi() {
     : (takes.length ? `${takes.length} take${takes.length > 1 ? "s" : ""}` : "");
   updateEstimate();
   updateTlTarget();
+  renderProps();
 }
 
 // Dragging a slider must not rebuild the list under the cursor, so the readouts
@@ -3288,7 +3374,7 @@ function clipFromEvent(e) {
   return [takes.find(t => t.id === row.dataset.tid) || null, row];
 }
 
-$("takeList").addEventListener("input", (e) => {
+for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("input", (e) => {
   const pair = clipFromEvent(e), clip = pair[0], row = pair[1];
   if (!clip) return;
   const act = e.target.dataset.tact, f = fxOf(clip);
@@ -3316,7 +3402,7 @@ $("takeList").addEventListener("input", (e) => {
   markDirty();
 });
 
-$("takeList").addEventListener("click", (e) => {
+for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click", (e) => {
   const pair = clipFromEvent(e), take = pair[0];
   if (!take) return;
   const act = e.target.dataset.tact;
@@ -3328,14 +3414,20 @@ $("takeList").addEventListener("click", (e) => {
     setStatus(`"${take.name}" added to "${ed.name}".`);
     return;
   }
-  if (act === "twist") {
-    if (openTakes.has(take.id)) openTakes.delete(take.id); else openTakes.add(take.id);
-    updateTakeUi();
+  if (act === "pick") {
+    tlTarget = "take:" + take.id;
+    propsFocus = "clip";
+    $("tlTarget").value = tlTarget;
+    updateTransport(); updateTakeUi(); renderShotStrip(); renderProps();
+    cine.mode = "free";
+    const pose = sampleTake(take, 0);
+    if (pose) applyPose(pose);
+    setStatus(`Loaded "${take.name}", at its first frame.`);
     return;
   }
   if (act === "rename") {
     const n = prompt("Take name", take.name);
-    if (n) { take.name = n.trim() || take.name; markDirty(); updateTakeUi(); }
+    if (n) { take.name = n.trim() || take.name; tlSig = ""; markDirty(); updateTakeUi(); }
     return;
   }
   if (act === "play") { previewTake(take); return; }
@@ -3455,8 +3547,8 @@ const previewEdit = (ed) => startPreview(ed, true);
 // ---------------------------------------------------------------------------
 let tlTarget = "";
 
-const currentTake = () => tlTarget.startsWith("take:") ? takeById(tlTarget.slice(5)) : null;
-const currentEdit = () => tlTarget.startsWith("edit:") ? editById(tlTarget.slice(5)) : null;
+function currentTake() { return tlTarget.startsWith("take:") ? takeById(tlTarget.slice(5)) : null; }
+function currentEdit() { return tlTarget.startsWith("edit:") ? editById(tlTarget.slice(5)) : null; }
 const targetName = () => {
   const ed = currentEdit(); if (ed) return ed.name;
   const t = currentTake(); if (t) return t.name;
@@ -3500,7 +3592,8 @@ function updateTransport() {
   $("tpPlay").disabled = !dur;
   $("tpHome").disabled = !dur;
   $("tpScrub").disabled = !(take || ed);    // these scrub; a waypoint shot does not yet
-  $("tlInfo").textContent = ed ? `${editLayout(ed).length} blocks`
+  $("tlInfo").textContent = ed ? (() => { const n = editLayout(ed).length;
+      return `${ed.name} \u00b7 ${n} block${n === 1 ? "" : "s"} \u00b7 ${fmtClock(editDuration(ed))}`; })()
     : take ? `${procOf(take).pts.length} points`
     : (tlTarget === "shot" ? `${shot.points.length} waypoints` : "");
   if (!takePreview && !shot.playing) { $("tpTime").textContent = fmtClock(0); $("tpScrub").value = 0; }
@@ -3554,6 +3647,8 @@ $("tpScrub").oninput = (e) => {
 // press play to find out where it begins.
 $("tlTarget").onchange = (e) => {
   tlTarget = e.target.value;
+  propsFocus = "clip";
+  updateTakeUi();
   updateTransport();
   renderShotStrip();                                // the chips follow the selection now
   if (motionRec || bakeState.running) return;       // mid-take or mid-render, stay put
@@ -3630,16 +3725,18 @@ function renderTimeline() {
   const show = !!ed && l.length > 0;
   $("tlRenameEdit").disabled = !ed;
   $("tlDelEdit").disabled = !ed;
-  for (const id of ["tlBlkDup", "tlBlkReset", "tlBlkDel"]) $(id).disabled = !(ed && tlSel);
+  // Duplicate / Reset trim / Remove act on a block. With no block picked they
+  // are three verbs with no object, which is what they looked like.
+  const onBlock = !!(ed && l.some(s => s.b.id === tlSel));
+  $("tlActs").style.display = onBlock ? "flex" : "none";
   if (sig === tlSig) return;
   tlSig = sig;
   $("tlTrack").style.display = show ? "" : "none";
-  $("tlActs").style.display = ed ? "" : "none";
   $("tlEmpty").style.display = show ? "none" : "";
   $("tlEmpty").textContent = !ed
     ? (edits.length ? "Pick an edit in the transport selector to lay it out here."
                     : "No edits yet. Press + Edit, then drag takes in or use the arrow on a take.")
-    : `"${ed.name}" is empty. Drag a take in, or press the arrow on one.`;
+    : `"${ed.name}" is empty. Drag a take onto this strip, or press \u2192 on a take in the list.`;
   if (!show) return;
   const dur = editDuration(ed) || 1;
   $("tlBlocks").innerHTML = l.map(s => `
@@ -3651,7 +3748,8 @@ function renderTimeline() {
       <div class="edge l" data-edge="l"></div>
       <div class="edge r" data-edge="r"></div>
     </div>`).join("");
-  $("tlHint").textContent = `${l.length} block${l.length > 1 ? "s" : ""} · ${fmtClock(editDuration(ed))}`;
+  const sel = l.find(s => s.b.id === tlSel);
+  $("tlHint").textContent = sel ? `${sel.take.name} · ${sel.dur.toFixed(1)}s of ${takeDuration(sel.take).toFixed(1)}s` : "";
 }
 
 function tlPlayheadAt(t, dur) {
