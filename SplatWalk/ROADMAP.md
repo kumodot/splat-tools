@@ -178,5 +178,15 @@ the local spacing. An index means nothing once Detail redistributes the points.
 of a take. It does not track the Detail slider, because that would wipe any
 hand edits. Live point editing is the viewport gizmo, not this.
 
+**Hard cuts only. Transitions were looked at and dropped.** All three are
+possible, which was the surprise: a true cross-dissolve is two renders per
+frame composited on a 2D canvas, no shader needed, free in the bake and about
+half frame rate in the preview for the length of the transition. A camera
+blend is one render and costs nothing. A fade through black is trivial. They
+were dropped for complexity, not feasibility, and because a cross-dissolve
+between two views of the same scene tends to read as double exposure rather
+than as a transition. If this comes back, the engineering risk is not the
+blend, it is the canvas capture timing that caused the v0.4.1 black frames.
+
 **Every build gets its own version.** `python tools/release.py X.Y.Z`. Five
 rounds of changes once shipped as v0.5.0 and cost several test cycles.
