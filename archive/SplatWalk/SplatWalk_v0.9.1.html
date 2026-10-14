@@ -820,7 +820,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.9.1";
-const APP_BUILT = "2026-10-14 05:36 UTC";
+const APP_BUILT = "2026-10-14 05:40 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -1991,13 +1991,19 @@ addEventListener("pointerdown", (e) => {
 }, true);
 
 addEventListener("keydown", (e) => {
+  // Space is the exception to standing aside for a focused control. A slider
+  // and a button have no use for it, and the scrub bar is exactly where your
+  // hand is when you want to play from where you just parked the playhead.
+  const tag = e.target.tagName, isRange = tag === "INPUT" && e.target.type === "range";
+  if (e.code === "Space" && (isRange || (tag !== "INPUT" && tag !== "SELECT" && tag !== "TEXTAREA"))) {
+    e.preventDefault();
+    $("tpPlay").click();
+    return;
+  }
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.code === "KeyY") { e.preventDefault(); redo(); return; }
   if (e.ctrlKey || e.metaKey) return;
-  // Space is play everywhere else, so it is play here. preventDefault stops
-  // both the page scrolling and a focused button firing a second time.
-  if (e.code === "Space") { e.preventDefault(); $("tpPlay").click(); return; }
   if (e.code === "KeyH") setHelp($("help").classList.contains("hidden"));
   if (e.code === "KeyK") addWaypoint();
   if (e.code === "KeyP") $("tpPlay").click();        // one play, wherever you press it
@@ -3975,9 +3981,20 @@ function startPreview(obj, isEdit) {
   const same = takePreview && (isEdit ? takePreview.edit === obj : takePreview.take === obj);
   if (same) { takePreview = null; updateTakeUi(); renderTimeline(); setStatus("Preview stopped."); return; }
   cine.mode = "free";
-  takePreview = isEdit ? { edit: obj, t0: performance.now() } : { take: obj, t0: performance.now() };
+  // Play from the playhead, the way every editor does. Parking it somewhere
+  // and being thrown back to zero is the thing that makes you stop trusting
+  // the playhead at all. Only when it is loaded in the transport, because
+  // otherwise the clock belongs to something else; and at either end it
+  // starts over, since there is nothing left to play from there.
+  const dur = isEdit ? editDuration(obj) : takeDuration(obj);
+  const loaded = isEdit ? currentEdit() === obj : currentTake() === obj;
+  const from = loaded && clock.t > 0.01 && clock.t < dur - 0.02 ? clock.t : 0;
+  takePreview = isEdit ? { edit: obj, t0: performance.now() - from * 1000 }
+                       : { take: obj, t0: performance.now() - from * 1000 };
   updateTakeUi();
-  setStatus(`Previewing "${obj.name}". Esc or the button stops it.`);
+  setStatus(from > 0
+    ? `Playing "${obj.name}" from ${fmtClock(from)}. Esc or the button stops it.`
+    : `Previewing "${obj.name}". Esc or the button stops it.`);
 }
 const previewTake = (take) => startPreview(take, false);
 const previewEdit = (ed) => startPreview(ed, true);
@@ -4111,6 +4128,11 @@ function updateTlTarget() {
   const want = tlTarget;
   sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
   if (opts.some(([v]) => v === want)) sel.value = want; else tlTarget = sel.value;
+  // Remembered here rather than in the handlers, so a take that got selected
+  // by opening a project counts too. Without it, + Timeline went dead after
+  // the first press, because by then the transport is holding the edit.
+  if (currentTake()) activeTakeId = currentTake().id;
+  if (currentEdit()) activeEditId = currentEdit().id;
   updateTransport();
 }
 
