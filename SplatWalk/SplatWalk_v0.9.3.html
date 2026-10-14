@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.9.2</title>
+<title>SplatWalk v0.9.3</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -411,7 +411,10 @@
   .rowgrip svg { width: 6px; height: 12px; display: block; fill: var(--muted); }
   .rowgrip:hover svg { fill: var(--accent); }
   .reordering { opacity: 0.55; }
-  .tkicon { width: 11px; height: 11px; display: block; fill: currentColor; }
+  /* The click has to land on the button, not on the drawing inside it. Every
+     other row button is text, so the clapper was the only one that could
+     swallow its own press. */
+  .tkicon { width: 11px; height: 11px; display: block; fill: currentColor; pointer-events: none; }
   .take .tbtn.clap { display: flex; align-items: center; padding: 0 4px; }
   .take .dot { flex: 0 0 8px; height: 8px; border-radius: 2px; }
   .swatches { display: flex; gap: 3px; flex: 1; }
@@ -500,7 +503,7 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.9.2</span>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.9.3</span>
   <span class="sep"></span>
   <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
   <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
@@ -791,7 +794,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.9.2</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.9.3</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -819,8 +822,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.9.2";
-const APP_BUILT = "2026-10-14 05:40 UTC";
+const APP_VERSION = "0.9.3";
+const APP_BUILT = "2026-10-14 05:49 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -829,7 +832,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.9.2, so a reload could not tell you whether you
+// changes all shipped as v0.9.3, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1386,7 +1389,7 @@ async function loadProject(name) {
                      gen: t.gen || null, fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.9.2 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.9.3 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1615,10 +1618,24 @@ function renderProps() {
   const ed = currentEdit();
   if (ed) {
     const l = editLayout(ed);
+    const s = l.find(x => x.b.id === tlSel);
+    if (s) {
+      // A block is an instance of a take, so what there is to change about it
+      // is the take: an orbit's angles, the filters, the timing. Those are
+      // shared by every block of that take, which the pane says out loud
+      // rather than leaving you to discover it.
+      const n = l.filter(x => x.b.takeId === s.b.takeId).length;
+      el.innerHTML = propsHead("Block", s.take.name)
+        + `<div class="meta">${s.dur.toFixed(1)}s of ${takeDuration(s.take).toFixed(1)}s`
+        + `, at ${fmtClock(s.t0)} in "${esc(ed.name)}"`
+        + (n > 1 ? ` · shared with ${n - 1} other block${n > 2 ? "s" : ""} of this take` : "")
+        + `</div><div class="takewrap open" data-tid="${s.take.id}">${takeCard(s.take)}</div>`;
+      return;
+    }
     el.innerHTML = propsHead("Edit", ed.name)
       + `<div class="meta">${l.length} block${l.length === 1 ? "" : "s"} · ${fmtClock(editDuration(ed))}</div>`
-      + `<div class="meta" style="margin-top:6px">Blocks are arranged on the timeline. Their filters
-         belong to the take each one points at, so select the take to change them.</div>`;
+      + `<div class="meta" style="margin-top:6px">Pick a block on the timeline to see the take behind
+         it, with its own settings.</div>`;
     return;
   }
   const take = currentTake();
@@ -3726,7 +3743,9 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("input",
 for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click", (e) => {
   const pair = clipFromEvent(e), take = pair[0];
   if (!take) return;
-  const act = e.target.dataset.tact;
+  // closest, not the target itself: a button with anything drawn inside it
+  // hands you the drawing, and then nothing happens for no visible reason.
+  const act = (e.target.closest("[data-tact]") || {}).dataset?.tact;
   if (act === "toedit") { sendToTimeline(take); return; }
   if (["del", "dup", "fxreset", "towp", "color", "trimauto", "loop", "reverse", "rename"].includes(act)) {
     undoPoint(act === "del" ? "deleting a take" : act === "dup" ? "duplicating a take"
@@ -4320,6 +4339,8 @@ function renderTimeline() {
   }
   if (sig === tlSig) return;
   tlSig = sig;
+  // The selection changed, so the pane has a different thing to describe.
+  renderProps();
   // With nothing to show there is nothing to be tall for: the strip goes away
   // and the panel is its row of buttons. The hint moves into the header,
   // where there is already room for it.
