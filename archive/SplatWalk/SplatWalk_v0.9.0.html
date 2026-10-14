@@ -820,7 +820,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.9.0";
-const APP_BUILT = "2026-10-14 05:32 UTC";
+const APP_BUILT = "2026-10-14 05:36 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -2881,6 +2881,7 @@ function setSweep(g, signed) {
   g.cw = signed >= 0;
   g.sweep = s;
 }
+const genEnd = (g) => g.start + (g.cw ? g.sweep : -g.sweep);
 
 // Any edit to a filter bumps this. It is the whole of the cache invalidation,
 // because the recording underneath can never change.
@@ -3510,18 +3511,24 @@ const speedTxt = (f, pr) => `${f.speed.toFixed(2)}x · ${pr.outDur.toFixed(1)}s`
 function genCard(clip) {
   const g = clip.gen;
   if (!g || g.kind !== "orbit") return "";
+  // Start plus how far to go, the same pair the Camera panel asks for. The
+  // end is arithmetic, so it is shown and not typed: two editable numbers
+  // that have to agree is a third thing to keep in sync for no gain.
   return `<div class="genfx">
     <div class="fxrow">
-      <label title="The angle around the target the orbit begins at. Editing either number rebuilds the move.">Start angle</label>
+      <label title="The angle around the target the orbit begins at.">Start angle</label>
       <input type="number" class="fxnum" data-tact="gstart" step="15" value="${round4(g.start)}">
-      <span class="fxto">to</span>
-      <input type="number" class="fxnum" data-tact="gend" step="15" value="${round4(g.start + (g.cw ? g.sweep : -g.sweep))}">
-      <span class="fxto" data-genval="dir">&deg; ${g.cw ? "cw" : "ccw"}</span>
+      <span class="fxto" style="flex:1" data-genval="end">&rarr; ${Math.round(genEnd(g))}&deg;</span>
+    </div>
+    <div class="fxrow">
+      <label title="How far to go from the start. A negative number goes the other way round.">Sweep</label>
+      <input type="number" class="fxnum" data-tact="gsweep" step="15" value="${round4(g.cw ? g.sweep : -g.sweep)}">
+      <span class="fxto" style="flex:1" data-genval="dir">&deg; ${g.cw ? "clockwise" : "anticlockwise"}</span>
     </div>
     <div class="fxrow">
       <label title="How long the sweep takes. Speed and Ease below still apply on top of it.">Seconds</label>
       <input type="number" class="fxnum" data-tact="gdur" step="0.5" min="0.5" value="${round4(g.dur)}">
-      <span class="fxto" style="flex:1" data-genval="sweep">${Math.round(Math.abs(g.sweep))}&deg; sweep</span>
+      <span class="fxto" style="flex:1"></span>
     </div>
   </div>`;
 }
@@ -3602,8 +3609,8 @@ function patchGenRow(row, clip) {
   const g = clip.gen;
   if (!g || !row) return;
   const set = (k, html) => { const e = row.querySelector(`[data-genval="${k}"]`); if (e) e.innerHTML = html; };
-  set("sweep", `${Math.round(Math.abs(g.sweep))}&deg; sweep`);
-  set("dir", `&deg; ${g.cw ? "cw" : "ccw"}`);
+  set("end", `&rarr; ${Math.round(genEnd(g))}&deg;`);
+  set("dir", `&deg; ${g.cw ? "clockwise" : "anticlockwise"}`);
   const pr = procOf(clip);
   for (const [sel, val] of [['[data-tact="tin"]', pr.tIn.toFixed(2)], ['[data-tact="tout"]', pr.tOut.toFixed(2)]]) {
     const el = row.querySelector(sel);
@@ -3681,11 +3688,13 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("input",
   const v = parseFloat(e.target.value);
   if (!isFinite(v)) return;
   // The generator's own numbers rebuild the move itself, not a filter on it.
-  if (act === "gstart" || act === "gend" || act === "gdur") {
+  if (act === "gstart" || act === "gsweep" || act === "gdur") {
     const g = clip.gen;
     if (!g) return;
-    if (act === "gstart") { const end = g.start + (g.cw ? g.sweep : -g.sweep); g.start = v; setSweep(g, end - v); }
-    else if (act === "gend") setSweep(g, v - g.start);
+    // Start moves the whole arc and keeps its length, which is the point of
+    // asking for a sweep rather than an end: "from here, go 180".
+    if (act === "gstart") g.start = v;
+    else if (act === "gsweep") setSweep(g, v);
     else g.dur = clampTo(v, 0.5, 600);
     regenOrbit(clip);
     tlSig = ""; patchGenRow(row, clip); patchTakeRow(row, clip); updateTransport(); markDirty();
