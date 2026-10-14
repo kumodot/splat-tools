@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.5.4</title>
+<title>SplatWalk v0.5.5</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -27,7 +27,7 @@
     --statusH: 26px;
     --transportH: 34px;
     --rightPanelW: 311px;
-    --tlPanelH: 302px;
+    --tlPanelH: 180px;
     --rightW: var(--rightPanelW);   /* space reserved; zero when put away */
     --tlH: var(--tlPanelH);
     --propsFlex: 0.351;
@@ -359,7 +359,7 @@
 
 <div id="topbar" class="zone">
   <div class="tbrow">
-    <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.5.4</span>
+    <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.5.5</span>
     <span class="sep"></span>
     <label class="hint" style="flex:0 0 auto">Project</label>
     <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
@@ -379,7 +379,7 @@
     <span class="zonetoggles">
       <label title="Show the timeline"><input type="checkbox" id="tgTl"> Timeline</label>
       <label title="Show the right column (1)"><input type="checkbox" id="tgRight" checked> Panel</label>
-      <label title="Show the controls card (H)"><input type="checkbox" id="tgHelp" checked> Controls</label>
+      <label title="Show the keyboard shortcuts card (H)"><input type="checkbox" id="tgHelp" checked> Shortcuts</label>
     </span>
     <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
     <button class="small" id="aboutBtn">About</button>
@@ -526,11 +526,11 @@
     <span class="spacer"></span>
     <span class="tlinfo" id="tlInfo"></span>
   </div>
-  <div id="tlBody">Pick what to work on above. Takes will be laid out here, and the curve
-    editor for one take is a mode of this same panel.</div>
+  <div id="tlBody">No editing here yet. The transport below plays whatever is selected.</div>
 </div>
 
 <div id="transport" class="zone">
+  <button class="small" id="tpHome" title="Back to the start" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2 H3.6 V10 H2 Z M10 2 V10 L4.6 6 Z"/></svg></button>
   <button class="small" id="tpPlay" title="Play the current take or shot" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path id="tpIcon" d="M3 2 L10 6 L3 10 Z"/></svg></button>
   <select id="tlTarget" title="What the transport and the timeline are driving"></select>
   <span class="tcode" id="tpTime">0:00.00</span>
@@ -613,7 +613,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.5.4</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.5.5</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -641,8 +641,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.5.4";
-const APP_BUILT = "2026-10-14 02:34 UTC";
+const APP_VERSION = "0.5.5";
+const APP_BUILT = "2026-10-14 02:39 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -651,7 +651,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.5.4, so a reload could not tell you whether you
+// changes all shipped as v0.5.5, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1204,7 +1204,7 @@ async function loadProject(name) {
                      enabled: t.enabled !== false, fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.5.4 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.5.5 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1395,7 +1395,7 @@ function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 // ---------------------------------------------------------------------------
 const LS_LAYOUT = "splatwalk.layout2";
 const LS_FOLDS = "splatwalk.folds";
-const LAYOUT_DEFAULTS = { rightW: 311, tlH: 302, propsFlex: 0.351, noright: false, notl: true, nohelp: false };
+const LAYOUT_DEFAULTS = { rightW: 311, tlH: 180, propsFlex: 0.351, noright: false, notl: true, nohelp: false };
 const RIGHT_MIN = 240, TL_MIN = 90;
 const layout = { ...LAYOUT_DEFAULTS };
 const cl = (v, a, b) => v < a ? a : v > b ? b : v;
@@ -2088,7 +2088,7 @@ function updateShotStripState() {
   const el = $("shotStrip");
   if (!el.classList.contains("on")) return;
   const n = shot.points.length;
-  const head = shot.playing && shot.duration > 0 && n > 1 ? (shot.t / shot.duration) * (n - 1) : -1;
+  const head = n > 1 && (shot.playing || shot.at >= 0) ? clamp01(shot.t) * (n - 1) : -1;
   el.querySelectorAll(".wp").forEach((w, i) => {
     w.classList.toggle("passed", head >= 0 && i <= head + 0.001);
     w.classList.toggle("at", head >= 0 ? Math.round(head) === i : shot.at === i);
@@ -2103,9 +2103,7 @@ function updateShotGizmo() {
     && !document.body.classList.contains("recording") && !renderer.xr.isPresenting;
   if (!shotGizmo.visible) return;
   const n = shot.points.length;
-  const reached = shot.playing && shot.duration > 0 && n > 1
-    ? (shot.t / shot.duration) * (n - 1)
-    : -1;
+  const reached = n > 1 && (shot.playing || shot.at >= 0) ? clamp01(shot.t) * (n - 1) : -1;
   for (const c of shotGizmo.children) {
     if (!c.isSprite) continue;
     const past = reached >= 0 && c.userData.wp <= reached + 0.001;
@@ -2214,7 +2212,10 @@ function clickTakePoint(clientX, clientY) {
 function goToWaypoint(i) {
   const p = shot.points[i];
   if (!p) return;
+  // Jumping to a waypoint moves the playhead onto it, so pressing play carries
+  // on from there rather than starting the shot over.
   shot.at = i;
+  shot.t = shot.points.length > 1 ? i / (shot.points.length - 1) : 0;
   if (shot.playing) stopShot();
   cine.mode = "free";
   cam.pos.fromArray(p.pos); cam.tPos.fromArray(p.pos);
@@ -2275,7 +2276,8 @@ function sampleScalars(arr, u) {
 
 function playShot(record = false) {
   if (!shot.curve) { setStatus("Add at least two waypoints first.", true); return; }
-  shot.playing = true; shot.t = 0;
+  shot.playing = true;
+  if (shot.t >= 1 - 1e-6) shot.t = 0;      // at the end, start over; otherwise resume
   cam.smoothing = 0;               // the curve is already smooth; lag would cut corners
   if (record) startRecording();
   setStatus("Playing the shot...");
@@ -3109,6 +3111,7 @@ function updateTransport() {
   const dur = take ? takeDuration(take) : (tlTarget === "shot" ? shot.duration : 0);
   $("tpTotal").textContent = fmtClock(dur);
   $("tpPlay").disabled = !dur;
+  $("tpHome").disabled = !dur;
   $("tpScrub").disabled = !take;            // takes scrub; a waypoint shot does not yet
   $("tlInfo").textContent = take ? `${procOf(take).pts.length} points`
     : (tlTarget === "shot" ? `${shot.points.length} waypoints` : "");
@@ -3127,10 +3130,14 @@ function updateTransportClock() {
     dur = takeDuration(takePreview.take);
     t = Math.min(dur, (performance.now() - takePreview.t0) / 1000);
     playing = true;
-  } else if (shot.playing) {
-    dur = shot.duration; t = Math.min(dur, shot.t); playing = true;
+  } else if (tlTarget === "shot") {
+    // shot.t is normalised 0..1, not seconds. Reading it as seconds put the
+    // clock at one second on a twelve second shot and, worse, divided it by
+    // the duration a second time when lighting the waypoint chips, so only
+    // the first one ever lit and it never advanced.
+    dur = shot.duration; t = clamp01(shot.t) * dur; playing = shot.playing;
   } else {
-    dur = take ? takeDuration(take) : (tlTarget === "shot" ? shot.duration : 0);
+    dur = take ? takeDuration(take) : 0;
     t = dur ? (Number($("tpScrub").value) / 1000) * dur : 0;
   }
   $("tpTime").textContent = fmtClock(t);
@@ -3164,6 +3171,16 @@ $("tlTarget").onchange = (e) => {
   const take = currentTake();
   if (take) { cine.mode = "free"; applyPose(sampleTake(take, 0)); setStatus(`Loaded "${take.name}", at its first frame.`); }
   else if (tlTarget === "shot" && shot.points.length) goToWaypoint(0);
+};
+$("tpHome").onclick = () => {
+  const take = currentTake();
+  if (take) {
+    if (takePreview && takePreview.take === take) takePreview.t0 = performance.now();
+    else { cine.mode = "free"; applyPose(sampleTake(take, 0)); }
+    $("tpScrub").value = 0;
+  } else if (tlTarget === "shot" && shot.points.length) {
+    goToWaypoint(0);
+  }
 };
 $("tpPlay").onclick = () => {
   const take = currentTake();

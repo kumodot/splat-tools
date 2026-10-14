@@ -39,6 +39,30 @@ The zone, the selector and the transport exist. The body is still a placeholder.
 - [ ] **Scrub the waypoint shot.** The transport scrubs a take today; a shot
       is still play-only.
 
+## One path type (agreed, not built)
+
+Proposed: stop having two kinds of camera move. A waypoint shot and a recorded
+take become the same thing, a **path**: an ordered list of keys carrying time,
+position, yaw, pitch and fov, plus the filter chain. Recording produces one
+with dense keys; placing waypoints produces one with sparse keys; Detail turns
+dense into sparse. Waypoints are simply the keyframes.
+
+What it collapses: two playback paths, two gizmos, two sets of interpolation,
+two shapes in the project file, and the "To waypoints" button, which stops
+being a conversion and becomes a no-op.
+
+**The one thing to get right.** A waypoint shot today spaces its points evenly
+along the curve by arc length, which is what keeps a hand-placed shot moving
+at a constant speed even when the stops are bunched up. A recorded take gets
+its timing from the recording. Unifying naively would give hand-placed shots
+wildly varying speed. So a path needs a timing mode: `recorded` keeps the key
+times, `even` distributes them by arc length. Hand-placed paths default to
+`even` and keep behaving exactly as they do now.
+
+Second thing: the current waypoint playback eases the whole shot in and out
+with a fixed smoothstep. That becomes the Ease filter, already built, so the
+default for a hand-placed path is Ease at 100%.
+
 ## Camera and takes
 
 - [ ] **Framing rectangle.** The viewport aspect is not the render aspect, so
