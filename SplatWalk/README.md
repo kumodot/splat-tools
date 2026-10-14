@@ -4,7 +4,7 @@ Walk inside Gaussian Splat scenes on a Meta Quest 3 (WebXR) or on the desktop.
 Single HTML file, no build step, no APK. Loads `.ply` / `.spz` / `.splat` / `.ksplat` / `.sog`,
 lets you place several splats in one space, and saves projects in the browser.
 
-Current version: **v0.5.0** (`SplatWalk_v0.5.0.html`). The version is in the file name, the panel header,
+Current version: **v0.5.1** (`SplatWalk_v0.5.1.html`). The version is in the file name, the panel header,
 the About dialog and the in-VR HUD, so you always know which build you are looking at.
 Older builds live in `../archive/SplatWalk/`; `serve.py` always opens the newest one here.
 
@@ -19,7 +19,7 @@ Built with [three.js](https://threejs.org) and [Spark](https://sparkjs.dev) (bot
 
 ```
 SplatWalk/
-  SplatWalk_v0.5.0.html     the app (older builds are in ../archive/SplatWalk/)
+  SplatWalk_v0.5.1.html     the app (older builds are in ../archive/SplatWalk/)
   vendor/                   three.js + Spark (local copies, no CDN)
   splats/                   optional: drop files here and load them by URL (splats/name.spz)
   tools/                    splat_prep: shrink huge PLYs down to headset size (see below)
@@ -30,7 +30,7 @@ SplatWalk/
 
 ## Desktop test
 
-Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.5.0.html`.
+Double-click `run_SplatWalk.bat` (needs Python 3). It opens `http://localhost:8080/SplatWalk_v0.5.1.html`.
 
 - Drag to look, `WASD` move, `Q`/`E` down/up, `Shift` fast, mouse wheel forward/back
 - `+ Add files` or drag-and-drop splat files onto the page
@@ -47,10 +47,10 @@ Pick one:
    Release asset into **Add URL**.
 2. **adb reverse (fastest iteration).** Developer mode on the headset, USB cable, then on the PC:
    `adb reverse tcp:8080 tcp:8080` and run `run_SplatWalk.bat`. In the Quest browser open
-   `http://localhost:8080/SplatWalk_v0.5.0.html`. `localhost` counts as secure, so VR works.
+   `http://localhost:8080/SplatWalk_v0.5.1.html`. `localhost` counts as secure, so VR works.
 3. **Self-signed https on the LAN.** Create a cert once (Git for Windows has openssl):
    `openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 3650 -subj "/CN=splatwalk"`
-   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.5.0.html` on the headset.
+   then `run_SplatWalk_https.bat` and open `https://<pc-ip>:8443/SplatWalk_v0.5.1.html` on the headset.
    Accept the certificate warning once. Option 1 makes this one unnecessary in practice.
 
 Put the headset on, press **Enter VR**.
