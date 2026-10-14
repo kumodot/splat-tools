@@ -23,8 +23,9 @@ const code = html.slice(a, html.lastIndexOf("// ---", b));
 
 const round4 = (v) => Math.round(v * 1e4) / 1e4;
 const uuid = () => "id" + Math.random().toString(36).slice(2);
-const mod = eval(code + "\n;({ sources, procOf, sampleTake, evalCR, newFx, takeDuration, despike })");
-const { sources, procOf, sampleTake, evalCR, newFx, takeDuration } = mod;
+const mod = eval(code + "\n;({ sources, takes, edits, procOf, sampleTake, evalCR, newFx, takeDuration, despike, newEdit, addBlock, editLayout, editDuration, sampleEdit })");
+const { sources, takes, edits, procOf, sampleTake, evalCR, newFx, takeDuration } = mod;
+const { newEdit, addBlock, editLayout, editDuration, sampleEdit } = mod;
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra) => {
@@ -420,6 +421,80 @@ console.log("\n13d. timing: as recorded vs linear");
   const still = clip({ trimAuto: false, timing: "linear" });
   const sp = sampleTake(still, procOf(still).outDur / 2);
   ok("a frozen take does not divide by zero", sp && isFinite(sp.pos[0]) && isFinite(sp.yaw));
+}
+
+console.log("\n13e. edits: blocks of takes on one timeline");
+{
+  // Two takes that are easy to tell apart: one runs along X, the other along Z.
+  const fps = 60;
+  const line = (ax) => Array.from({ length: 121 }, (_, i) => ({
+    t: round4(i / fps), p: ax === 0 ? [round4(i / 12), 1.6, 0] : [0, 1.6, round4(i / 12)],
+    yaw: 0, pitch: 0, fov: 60,
+  }));
+  sources.length = 0; takes.length = 0; edits.length = 0;
+  sources.push({ id: "sx", name: "sx", samples: line(0) });
+  sources.push({ id: "sz", name: "sz", samples: line(2) });
+  const mk = (srcId, name) => {
+    const c = { id: "c" + name, srcId, name, enabled: true, fx: { ...newFx(), trimAuto: false } };
+    c._rev = 1; takes.push(c); return c;
+  };
+  const A = mk("sx", "A"), B = mk("sz", "B");
+  const dA = takeDuration(A), dB = takeDuration(B);
+
+  const ed = newEdit("Opening");
+  addBlock(ed, A); addBlock(ed, B);
+  ok("the edit is as long as its parts", near(editDuration(ed), dA + dB, 1e-6), editDuration(ed));
+
+  // Butted together, so the second block starts exactly where the first ends.
+  const l = editLayout(ed);
+  ok("blocks are butted", near(l[1].t0, dA, 1e-9), l[1].t0);
+
+  ok("plays the first take first", dist(sampleEdit(ed, 0).pos, sampleTake(A, 0).pos) < 1e-9);
+  ok("and the second take second",
+     dist(sampleEdit(ed, dA + dB / 2).pos, sampleTake(B, dB / 2).pos) < 1e-9);
+  ok("the end is the end of the last block",
+     dist(sampleEdit(ed, dA + dB).pos, sampleTake(B, dB).pos) < 1e-6);
+  ok("past the end holds the last frame",
+     dist(sampleEdit(ed, 999).pos, sampleTake(B, dB).pos) < 1e-6);
+
+  // The cut itself: a frame either side must come from different takes, and
+  // neither may be NaN.
+  const before = sampleEdit(ed, dA - 1 / fps), after = sampleEdit(ed, dA + 1 / fps);
+  ok("a hard cut, not a blend", before.pos[0] > 1 && after.pos[0] < 1e-6, `${before.pos[0]} / ${after.pos[0]}`);
+
+  // Trimming a block shortens the edit and shifts everything after it. The
+  // take is untouched, which is the whole point of the split.
+  l[0].b.tIn = 0.5; l[0].b.tOut = 1.5;
+  ok("trim changes the block", near(editLayout(ed)[0].dur, 1, 1e-6), editLayout(ed)[0].dur);
+  ok("and the edit with it", near(editDuration(ed), 1 + dB, 1e-6));
+  ok("but never the take", near(takeDuration(A), dA, 1e-9));
+  ok("the block plays from its in point",
+     dist(sampleEdit(ed, 0).pos, sampleTake(A, 0.5).pos) < 1e-9);
+  ok("the next block follows the trim",
+     dist(sampleEdit(ed, 1 + dB / 2).pos, sampleTake(B, dB / 2).pos) < 1e-9);
+
+  // Duration is a property of the TAKE, so changing it reflows every edit.
+  A.fx.speed = 2; A._rev++;
+  ok("a take's speed reflows the edit", near(editLayout(ed)[1].t0, editLayout(ed)[0].dur, 1e-9));
+
+  // The same take twice, showing different stretches, with nothing duplicated.
+  const ed2 = newEdit("Twice");
+  const b1 = addBlock(ed2, B), b2 = addBlock(ed2, B);
+  b1.tOut = 1; b2.tIn = dB - 1;
+  ok("one take can appear twice", editLayout(ed2).length === 2);
+  ok("each instance keeps its own trim",
+     near(editLayout(ed2)[0].dur, 1, 1e-6) && near(editLayout(ed2)[1].dur, 1, 1e-6));
+  ok("and they play different stretches",
+     dist(sampleEdit(ed2, 0).pos, sampleEdit(ed2, 1.0001).pos) > 0.5);
+
+  // A block whose take went away is skipped, not a crash and not a hole.
+  takes.splice(takes.indexOf(B), 1);
+  ok("a dead block is skipped", editLayout(ed).length === 1);
+  ok("the edit is still playable", !!sampleEdit(ed, 0));
+  ok("an empty edit has no length and no pose",
+     editDuration(newEdit("Empty")) === 0 && sampleEdit(newEdit("Empty2"), 0) === null);
+
+  sources.length = 0; takes.length = 0; edits.length = 0;
 }
 
 console.log("\n14. nothing produces NaN, anywhere");

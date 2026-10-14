@@ -25,17 +25,19 @@ done. What is left of the original layout study:
 
 ## The timeline
 
-The zone, the selector and the transport exist. The body is still a placeholder.
+Built in v0.6.0, to the design agreed over three rounds below.
 
-This is the next block of work. Agreed with Marcelo over three rounds; the
-design below is settled, only the code is missing.
-
-- [ ] **Edits.** An edit is an ordered list of blocks, each block an instance
-      of a take. Create one, name it, drag takes into it, reorder, duplicate,
-      delete. Hard cuts only, no transitions, and blocks are always butted
-      together so there is never a hole to define the behaviour of.
-- [ ] **Take blocks on a time axis.** The timeline body shows the blocks of
-      the selected edit and nothing else. The take list becomes the bin.
+- [x] **Edits.** An edit is an ordered list of blocks, each block an instance
+      of a take. Create one, rename it, drag takes into it or use the arrow on
+      a take row, reorder, duplicate, trim, delete. Hard cuts only, and blocks
+      are always butted together so there is never a hole to define.
+- [x] **Take blocks on a time axis.** The timeline body shows the blocks of
+      the selected edit and nothing else. The take list is the bin.
+- [x] **The chips follow the selection.** They were the waypoint shot and
+      nothing else, which stopped making sense once a take became a path like
+      any other. A take shows its keys, an edit shows its blocks, and clicking
+      one puts the playhead on it. Dense takes (over 32 points) show none,
+      because at that count they are a smear rather than a control.
 - [ ] **Graph editor as a mode of the same panel.** Per-channel curves (X, Y,
       Z, yaw, pitch, fov) with the surviving points as handles. This is the 2D
       half of the point editing that already works in the viewport, and it
@@ -68,16 +70,25 @@ every block of it in every edit, and those edits reflow. Butted blocks make
 the reflow silent. Two speeds of one move means duplicating the take in the
 bin, which the list already does.
 
-**Render follows the selection.** Marcelo's, and it deletes more than it
-adds: the render section gets the same selector the timeline and transport
-use, and Bake exports whatever is selected. A take exports as that take, an
-edit exports as the merged sequence.
+**Render follows the selection.** Marcelo's, and it deleted more than it
+added. Done in v0.6.0: the render reads the same selector the viewport and the
+transport do, and the button says what it will render. Gone are the per-take
+`enabled` checkboxes, the "Join: one file per take" dropdown and the estimate
+that summed the queue. Batch render came back as an `All takes` entry in the
+same list, so there is one mechanism instead of two.
 
-What that removes: the per-take `enabled` checkboxes, the "Join: one file per
-take" dropdown, and the estimate that sums the queue. Duration and frame
-count become simply those of the selection. Batch rendering, the one thing
-the checkboxes did that a selector does not, comes back as an `All takes`
-entry in the same dropdown. One mechanism instead of two.
+Internally the bake stopped knowing what a take is. It renders *units*:
+anything with a name, a length and a pose at a time. A take is one unit, an
+edit is its blocks in order, `All takes` is one group each. That is the whole
+diff in the render loop.
+
+## Still open from the edits work
+
+- [ ] **A block cannot be trimmed past its take.** Correct, but the UI gives
+      no sign of why the edge stopped. A ghost of the untrimmed extent would.
+- [ ] **No snapping or ripple options.** Blocks butt together always; there is
+      no way to hold a frame between two blocks, which so far nobody wants.
+- [ ] **An edit cannot contain an edit.** Probably fine for ever.
 
 ## One path type (half built, v0.5.9)
 
@@ -126,6 +137,20 @@ default for a hand-placed path is Ease at 100%.
       over the canvas cost nothing.
 - [ ] **Retime curve.** Speed is a single multiplier; a curve would let a move
       ease between two different rates.
+
+## Splats
+
+- [ ] **Duplicate / instance a splat, and an Array property.** Asked for:
+      linear (axis, count, offset) and circular (axis, count, radius), plus a
+      plain manual duplicate. The question that comes with it was whether an
+      instance costs VRAM. It should not: Spark keeps the splat data in a
+      `packedSplats` buffer, and a second `SplatMesh` built on the same buffer
+      is a transform, not a copy. What an instance does cost is sort and draw
+      time, because SparkRenderer sorts every visible splat every frame, so
+      ten instances are ten times the splats to sort even though they are one
+      copy in memory. Verify that `packedSplats` can actually be shared in the
+      vendored Spark build before promising it; if it cannot, an array would
+      duplicate the data and the VRAM answer changes completely.
 
 ## Elsewhere
 

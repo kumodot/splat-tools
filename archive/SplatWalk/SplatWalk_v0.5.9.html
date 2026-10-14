@@ -71,8 +71,31 @@
   #timeline { left: 0; right: var(--rightW); height: var(--tlPanelH);
     bottom: calc(var(--statusH) + var(--transportH)); border-width: 1px 1px 0 0;
     display: flex; flex-direction: column; }
-  #tlBody { flex: 1; min-height: 0; overflow: auto; display: flex;
-    align-items: center; justify-content: center; color: var(--muted); font-size: 12px; }
+  #tlBody { flex: 1; min-height: 0; overflow: auto; padding: 9px 10px; font-size: 12px; }
+  #tlEmpty { color: var(--muted); text-align: center; padding: 20px 10px; }
+  #tlTrack { position: relative; height: 52px; border-radius: 6px; background: #0b0d12;
+    border: 1px solid var(--line); overflow: hidden; }
+  #tlTrack.drop { border-color: var(--accent); }
+  #tlBlocks { position: absolute; inset: 0; }
+  /* A block is an instance of a take, so it is drawn as a thing you can grab
+     and trim, not as a row in a list. */
+  .tlblk { position: absolute; top: 4px; bottom: 4px; border-radius: 5px; background: var(--sel);
+    border: 1px solid var(--line); overflow: hidden; cursor: grab; user-select: none;
+    min-width: 8px; }
+  .tlblk.sel { border-color: var(--accent); }
+  .tlblk.dragging { opacity: 0.7; cursor: grabbing; }
+  .tlblk .nm { position: absolute; left: 9px; right: 9px; top: 5px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; pointer-events: none; color: var(--text); }
+  .tlblk .du { position: absolute; left: 9px; bottom: 4px; font-size: 10px; color: var(--muted);
+    pointer-events: none; font-variant-numeric: tabular-nums; }
+  .tlblk .edge { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+  .tlblk .edge.l { left: 0; } .tlblk .edge.r { right: 0; }
+  .tlblk .edge:hover { background: var(--accent); opacity: 0.45; }
+  #tlHead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent);
+    pointer-events: none; display: none; }
+  #tlActs { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+  #tlActs .hint { flex: 1; }
+  .zonehead button.small { padding: 1px 7px; font-size: 11px; }
 
   #transport { left: 0; right: var(--rightW); bottom: var(--statusH); height: var(--transportH);
     border-width: 1px 1px 0 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
@@ -520,15 +543,8 @@
       </select>
       <label title="Render at double size and downsample. Slower, cleaner edges."><input type="checkbox" id="bakeSS"> 2x</label>
     </div>
-    <div class="row">
-      <label class="hint" style="flex:0 0 auto">Join</label>
-      <select id="bakeJoin">
-        <option value="separate" selected>One file per take</option>
-        <option value="single">All takes as one</option>
-      </select>
-    </div>
     <div class="row tight">
-      <button class="primary small" id="bakeBtn">Render queue</button>
+      <button class="primary small" id="bakeBtn">Render</button>
       <span id="estimate" style="flex:1"></span>
     </div>
   </section>
@@ -564,10 +580,22 @@
 <div id="timeline" class="zone">
   <div class="zonehead">
     <span>Timeline</span>
+    <button class="small" id="tlNewEdit" title="Create an edit, then drop takes into it">+ Edit</button>
+    <button class="small" id="tlRenameEdit" title="Rename this edit">Rename</button>
+    <button class="small warn" id="tlDelEdit" title="Delete this edit. The takes in it are untouched.">Delete</button>
     <span class="spacer"></span>
     <span class="tlinfo" id="tlInfo"></span>
   </div>
-  <div id="tlBody">No editing here yet. The transport below plays whatever is selected.</div>
+  <div id="tlBody">
+    <div id="tlEmpty"></div>
+    <div id="tlTrack"><div id="tlBlocks"></div><div id="tlHead"></div></div>
+    <div id="tlActs">
+      <button class="small" id="tlBlkDup" title="Another instance of the same take">Duplicate</button>
+      <button class="small" id="tlBlkReset" title="Give this block the whole take again">Reset trim</button>
+      <button class="small warn" id="tlBlkDel" title="Take this block out of the edit">Remove</button>
+      <span class="hint" id="tlHint"></span>
+    </div>
+  </div>
 </div>
 
 <div id="transport" class="zone">
@@ -684,7 +712,7 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
 const APP_VERSION = "0.5.9";
-const APP_BUILT = "2026-10-14 03:05 UTC";
+const APP_BUILT = "2026-10-14 03:39 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -1191,6 +1219,8 @@ function projectToJson() {
     shot: { points: shot.points, duration: shot.duration, loop: shot.loop },
     sources: sources.map(s => ({ id: s.id, name: s.name, samples: s.samples })),
     takes: takes.map(t => ({ id: t.id, srcId: t.srcId, name: t.name, enabled: t.enabled, fx: t.fx })),
+    edits: edits.map(e => ({ id: e.id, name: e.name,
+      blocks: e.blocks.map(b => ({ id: b.id, takeId: b.takeId, tIn: b.tIn, tOut: b.tOut })) })),
     items: state.items.map(i => ({
       id: i.id, name: i.name, blobId: i.blobId, url: i.url, fileName: i.fileName,
       position: i.position, rotation: i.rotation, scale: i.scale, visible: i.visible,
@@ -1254,8 +1284,20 @@ async function loadProject(name) {
                    enabled: t.enabled !== false, fx: { ...newFx(), trimAuto: false } });
     }
   }
+  edits.length = 0; editSeq = 0;
+  for (const e of (json.edits || [])) {
+    if (!e || !Array.isArray(e.blocks)) continue;
+    // A block whose take no longer exists is dropped rather than carried as a
+    // hole, because editLayout would skip it for ever anyway.
+    const blocks = e.blocks.filter(b => b && takes.some(t => t.id === b.takeId))
+      .map(b => ({ id: b.id || uuid(), takeId: b.takeId,
+                   tIn: b.tIn == null ? null : +b.tIn, tOut: b.tOut == null ? null : +b.tOut }));
+    edits.push({ id: e.id || uuid(), name: e.name || `Edit ${edits.length + 1}`, blocks });
+  }
+  editSeq = edits.length;
   takeSeq = takes.length;
   takePreview = null;
+  tlSel = null; tlSig = "";
   openTakes.clear();
   updateTakeUi();
   state.items = (json.items || []).map(j => ({
@@ -1283,7 +1325,9 @@ async function newProject(name) {
   state.projectName = name;
   state.start = { position: [0, 0, 0], yaw: 0 };
   shot.points = []; shot.curve = null; rebuildShotGizmo();
-  sources.length = 0; takes.length = 0; takeSeq = 0; takePreview = null; openTakes.clear(); updateTakeUi();
+  sources.length = 0; takes.length = 0; takeSeq = 0; takePreview = null;
+  edits.length = 0; editSeq = 0; tlSel = null; tlSig = "";
+  openTakes.clear(); updateTakeUi();
   applyStartPoint();
   renderItems();
   await saveProject();
@@ -2141,14 +2185,24 @@ function rebuildShotGizmo() {
 // The chips at the top of the screen, lit as the playhead goes past and marked
 // where you last jumped to. Classes are toggled on the existing nodes rather
 // than re-rendering the strip, because this runs every frame.
+// Where the transport is, in seconds, written once a frame and read by the
+// chips and the timeline playhead so they cannot disagree with the clock.
+const clock = { t: 0, dur: 0 };
+
 function updateShotStripState() {
   const el = $("shotStrip");
-  if (!el.classList.contains("on")) return;
-  const n = shot.points.length;
-  const head = n > 1 && (shot.playing || shot.at >= 0) ? clamp01(shot.t) * (n - 1) : -1;
+  if (!el.classList.contains("on") || !stripChips.length) return;
+  const isShot = tlTarget === "shot";
+  const live = isShot ? (shot.playing || shot.at >= 0) : clock.dur > 0;
+  const t = isShot ? clamp01(shot.t) * Math.max(1e-6, shot.duration) : clock.t;
+  // The one you are ON is the last one you went past, not the nearest. Nearest
+  // flips to the next block halfway through the one that is actually playing.
+  let at = -1;
+  stripChips.forEach((c, i) => { if (t >= c.time - 1e-3) at = i; });
   el.querySelectorAll(".wp").forEach((w, i) => {
-    w.classList.toggle("passed", head >= 0 && i <= head + 0.001);
-    w.classList.toggle("at", head >= 0 ? Math.round(head) === i : shot.at === i);
+    const c = stripChips[i];
+    w.classList.toggle("passed", live && !!c && t >= c.time - 1e-3);
+    w.classList.toggle("at", live ? at === i : (isShot && shot.at === i));
   });
 }
 
@@ -2291,20 +2345,86 @@ function deleteWaypoint(i) {
   setStatus(shot.points.length ? `Waypoint removed, ${shot.points.length} left.` : "Shot cleared.");
 }
 
+// The chips used to be the waypoint shot and nothing else. That stopped making
+// sense the moment a take became a path like any other: choose a take in the
+// transport and the chips should be ITS keys, choose an edit and they should be
+// its blocks. Same strip, same navigation, whatever is loaded.
+const STRIP_MAX = 32;              // beyond this they are a smear, not a control
+let stripChips = [];               // [{ label, time, title }]
+
+// Ease bends output time against curve time, so a chip drawn at the key's raw
+// time would light early or late. There is no closed form for the inverse of
+// u + (smoothstep(u) - u) * e, and bisection is exact enough and runs once per
+// redraw rather than per frame.
+function invEase(ue, e) {
+  if (e <= 1e-4) return ue;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 24; i++) {
+    const m = (lo + hi) / 2;
+    if (m + (m * m * (3 - 2 * m) - m) * e < ue) lo = m; else hi = m;
+  }
+  return (lo + hi) / 2;
+}
+
+function stripChipsFor() {
+  const ed = currentEdit();
+  if (ed) return editLayout(ed).map((s, i) => ({ label: String(i + 1), time: s.t0, title: s.take.name }));
+  const take = currentTake();
+  if (take) {
+    const pr = procOf(take), f = fxOf(take);
+    if (!pr.pts.length || pr.pts.length > STRIP_MAX) return [];
+    const out = pr.pts.map((p, i) => {
+      let u = pr.srcDur > 1e-9 ? clampTo(p.t / pr.srcDur, 0, 1) : 0;
+      u = invEase(u, clamp01(f.ease));
+      if (f.reverse) u = 1 - u;
+      return { label: String(i + 1), time: u * pr.outDur, title: `Point ${i + 1} of ${take.name}` };
+    });
+    out.sort((a, b) => a.time - b.time);     // Reverse puts the last key first
+    return out;
+  }
+  if (tlTarget === "shot" && shot.points.length) {
+    const n = shot.points.length, dur = Math.max(1e-6, shot.duration);
+    return shot.points.map((_, i) => ({ label: String(i + 1),
+      time: n > 1 ? (i / (n - 1)) * dur : 0, title: `Waypoint ${i + 1}` }));
+  }
+  return [];
+}
+
 function renderShotStrip() {
   const el = $("shotStrip");
-  el.classList.toggle("on", shot.points.length > 0);
-  if (!shot.points.length) { el.innerHTML = ""; return; }
-  el.innerHTML = `<span class="lbl">Shot</span>` + shot.points.map((_, i) => `
+  const isShot = tlTarget === "shot";
+  stripChips = stripChipsFor();
+  el.classList.toggle("on", stripChips.length > 0);
+  if (!stripChips.length) {
+    el.innerHTML = "";
+    return;
+  }
+  const label = currentEdit() ? "Edit" : currentTake() ? "Take" : "Shot";
+  el.innerHTML = `<span class="lbl">${esc(label)}</span>` + stripChips.map((c, i) => `
     <span class="wp">
-      <button class="go" data-go="${i}" title="Jump to waypoint ${i + 1}">${i + 1}</button>
-      <button class="del" data-del="${i}" title="Delete waypoint ${i + 1}">&times;</button>
+      <button class="go" data-go="${i}" title="${esc(c.title)}">${c.label}</button>
+      ${isShot ? `<button class="del" data-del="${i}" title="Delete waypoint ${i + 1}">&times;</button>` : ""}
     </span>`).join("");
 }
+
+// Clicking a chip puts the playhead on it, whatever kind of path is loaded.
+function seekTo(t) {
+  const dur = targetDuration();
+  if (!dur) return;
+  if (takePreview) takePreview.t0 = performance.now() - t * 1000;
+  else { cine.mode = "free"; applyPose(targetPose(t)); }
+  $("tpScrub").value = Math.round(clamp01(t / dur) * 1000);
+  $("tpTime").textContent = fmtClock(t);
+}
+
 $("shotStrip").addEventListener("click", (e) => {
   const go = e.target.dataset.go, del = e.target.dataset.del;
-  if (go !== undefined) goToWaypoint(parseInt(go, 10));
-  else if (del !== undefined) deleteWaypoint(parseInt(del, 10));
+  if (del !== undefined) { deleteWaypoint(parseInt(del, 10)); return; }
+  if (go === undefined) return;
+  const i = parseInt(go, 10);
+  if (tlTarget === "shot") { goToWaypoint(i); return; }
+  const c = stripChips[i];
+  if (c) { seekTo(c.time); setStatus(`${c.title}, at ${fmtClock(c.time)}.`); }
 });
 
 function buildShotCurve() {
@@ -2319,6 +2439,19 @@ function buildShotCurve() {
     while (y - prev > Math.PI) y -= 2 * Math.PI;
     while (prev - y > Math.PI) y += 2 * Math.PI;
     shot.yaws.push(y); shot.pitches.push(p.pitch); prev = y;
+  }
+  // A closed curve runs over n segments, because it adds the one from the last
+  // point back to the first. The yaw and pitch arrays only span n-1. Sampling
+  // both with the same u walks the head out of step with the path and then
+  // snaps it back at the seam, which is the jump Loop had. Appending the
+  // wrapped first value gives the scalars the same n segments the curve has,
+  // so the last frame closes onto the first in every channel.
+  if (shot.loop && shot.points.length > 1) {
+    let y = shot.points[0].yaw;
+    while (y - prev > Math.PI) y -= 2 * Math.PI;
+    while (prev - y > Math.PI) y += 2 * Math.PI;
+    shot.yaws.push(y);
+    shot.pitches.push(shot.points[0].pitch);
   }
   rebuildShotGizmo();
 }
@@ -2982,6 +3115,85 @@ function pruneSources() {
 }
 
 // ---------------------------------------------------------------------------
+// Edits
+//
+// An edit is an ordered list of blocks, and a block is an instance of a take.
+// The split, which is what makes the rest of this easy: DURATION is a property
+// of the take (Speed, Timing, Ease, Detail all live there), ARRANGEMENT is a
+// property of the block (order, in and out, duplicate). So a block is linked
+// to its take rather than a copy of it, and the take stays the one place the
+// move is described.
+//
+// Trim therefore exists at both levels without colliding, because the two
+// answer different questions. The take's Trim says which part of the recording
+// IS the take. A block's in/out says which part of the take plays HERE, and
+// touches neither the take nor the other blocks of it.
+//
+// Blocks are always butted together. A hole would need its own behaviour
+// defined (hold the last frame? cut to black?) and nobody asked for one.
+// ---------------------------------------------------------------------------
+const edits = [];
+let editSeq = 0;
+
+const takeById = (id) => takes.find(t => t.id === id) || null;
+const editById = (id) => edits.find(e => e.id === id) || null;
+
+// null means "all of it", deliberately: a block with no in/out follows its take
+// when the take's Speed changes, instead of freezing a length that no longer
+// matches anything.
+function blockRange(b) {
+  const take = takeById(b.takeId);
+  if (!take) return null;                       // its take was deleted
+  const dur = takeDuration(take);
+  const a = clampTo(b.tIn == null ? 0 : b.tIn, 0, dur);
+  const z = clampTo(b.tOut == null ? dur : b.tOut, 0, dur);
+  return z - a > 1e-4 ? { take, in: a, out: z, dur: z - a } : null;
+}
+
+// Laying the edit out is a running sum, and every consumer wants the same
+// answer, so they all read it from here.
+function editLayout(ed) {
+  const out = [];
+  let t0 = 0;
+  for (const b of (ed && ed.blocks) || []) {
+    const r = blockRange(b);
+    if (!r) continue;
+    out.push({ b, take: r.take, in: r.in, out: r.out, dur: r.dur, t0 });
+    t0 += r.dur;
+  }
+  return out;
+}
+
+function editDuration(ed) {
+  const l = editLayout(ed);
+  return l.length ? l[l.length - 1].t0 + l[l.length - 1].dur : 0;
+}
+
+function sampleEdit(ed, time) {
+  const l = editLayout(ed);
+  if (!l.length) return null;
+  const last = l[l.length - 1];
+  if (!(time < last.t0 + last.dur)) return sampleTake(last.take, last.out);
+  let k = 0;
+  while (k < l.length - 1 && time >= l[k].t0 + l[k].dur) k++;
+  const s = l[k];
+  return sampleTake(s.take, s.in + Math.max(0, time - s.t0));
+}
+
+function newEdit(name) {
+  const ed = { id: uuid(), name: name || `Edit ${String(++editSeq).padStart(2, "0")}`, blocks: [] };
+  edits.push(ed);
+  return ed;
+}
+
+function addBlock(ed, take, at) {
+  const b = { id: uuid(), takeId: take.id, tIn: null, tOut: null };
+  if (at == null || at < 0 || at > ed.blocks.length) ed.blocks.push(b);
+  else ed.blocks.splice(at, 0, b);
+  return b;
+}
+
+// ---------------------------------------------------------------------------
 // Take list UI
 // ---------------------------------------------------------------------------
 function fxSlider(label, act, val, text, title) {
@@ -3035,11 +3247,11 @@ function updateTakeUi() {
       return `<div class="takewrap ${open ? "open" : ""}" data-tid="${t.id}">
         <div class="take ${takePreview && takePreview.take === t ? "playing" : ""}">
           <button class="twist" data-tact="twist" title="Filters">${open ? "&#9662;" : "&#9656;"}</button>
-          <input type="checkbox" data-tact="enable" ${t.enabled ? "checked" : ""} title="Include in the render queue">
           <span class="num">${i + 1}</span>
-          <span class="tname" data-tact="rename" title="Click to rename">${esc(t.name)}</span>
+          <span class="tname" data-tact="rename" draggable="true" title="Click to rename, drag onto the timeline">${esc(t.name)}</span>
           <span class="tinfo" data-tinfo>${takeDuration(t).toFixed(1)}s</span>
           <button class="tbtn" data-tact="play" title="Preview in the viewport">&#9205;</button>
+          <button class="tbtn" data-tact="toedit" title="Add to the edit the timeline is showing">&rarr;</button>
           <button class="tbtn" data-tact="dup" title="Duplicate this clip">&#8862;</button>
           <button class="tbtn" data-tact="up" title="Move up" ${i === 0 ? "disabled" : ""}>&#9650;</button>
           <button class="tbtn del" data-tact="del" title="Delete this take">&times;</button>
@@ -3050,7 +3262,7 @@ function updateTakeUi() {
   }
   $("motionHint").textContent = motionRec
     ? `recording, ${motionRec.samples.length} samples`
-    : (takes.length ? `${takes.filter(t => t.enabled).length} of ${takes.length} queued` : "");
+    : (takes.length ? `${takes.length} take${takes.length > 1 ? "s" : ""}` : "");
   updateEstimate();
   updateTlTarget();
 }
@@ -3108,7 +3320,14 @@ $("takeList").addEventListener("click", (e) => {
   const pair = clipFromEvent(e), take = pair[0];
   if (!take) return;
   const act = e.target.dataset.tact;
-  if (act === "enable") { take.enabled = e.target.checked; markDirty(); updateTakeUi(); return; }
+  if (act === "toedit") {
+    const ed = currentEdit();
+    if (!ed) { setStatus("Select or create an edit first, with + Edit on the timeline.", true); return; }
+    addBlock(ed, take);
+    tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
+    setStatus(`"${take.name}" added to "${ed.name}".`);
+    return;
+  }
   if (act === "twist") {
     if (openTakes.has(take.id)) openTakes.delete(take.id); else openTakes.add(take.id);
     updateTakeUi();
@@ -3143,13 +3362,25 @@ $("takeList").addEventListener("click", (e) => {
     return;
   }
   if (act === "del") {
-    if (!confirm(`Delete "${take.name}"?`)) return;
+    const used = edits.reduce((n, ed) => n + ed.blocks.filter(b => b.takeId === take.id).length, 0);
+    if (!confirm(`Delete "${take.name}"?` + (used ? `\n\nIt is used by ${used} block${used > 1 ? "s" : ""} in your edits, which will go too.` : ""))) return;
     takes.splice(takes.indexOf(take), 1);
+    for (const ed of edits) ed.blocks = ed.blocks.filter(b => b.takeId !== take.id);
     openTakes.delete(take.id);
     if (takePreview && takePreview.take === take) takePreview = null;
     pruneSources();
-    markDirty(); updateTakeUi();
+    tlSig = ""; markDirty(); updateTakeUi();
   }
+});
+
+// Dragging the name onto the timeline is the other way in, and the one that
+// was asked for. The drag starts on the name rather than the whole row so it
+// cannot fight the sliders inside the card.
+$("takeList").addEventListener("dragstart", (e) => {
+  const pair = clipFromEvent(e), take = pair[0];
+  if (!take || e.target.dataset.tact !== "rename") return;
+  e.dataTransfer.setData("text/plain", "take:" + take.id);
+  e.dataTransfer.effectAllowed = "copy";
 });
 
 // The filtered path handed to the waypoint system as editable stops. Lower the
@@ -3197,13 +3428,22 @@ function takeToWaypoints(clip) {
     + (pr.pts.length > 60 ? " Lower Detail and try again if that is too many to edit." : ""));
 }
 
-function previewTake(take) {
-  if (takePreview && takePreview.take === take) { takePreview = null; updateTakeUi(); setStatus("Preview stopped."); return; }
+// One preview for both, because from here a take and an edit are the same
+// thing: something with a length and a pose at a time.
+const previewDur = () => !takePreview ? 0
+  : takePreview.edit ? editDuration(takePreview.edit) : takeDuration(takePreview.take);
+const previewPose = (t) => takePreview.edit ? sampleEdit(takePreview.edit, t) : sampleTake(takePreview.take, t);
+
+function startPreview(obj, isEdit) {
+  const same = takePreview && (isEdit ? takePreview.edit === obj : takePreview.take === obj);
+  if (same) { takePreview = null; updateTakeUi(); renderTimeline(); setStatus("Preview stopped."); return; }
   cine.mode = "free";
-  takePreview = { take, t0: performance.now() };
+  takePreview = isEdit ? { edit: obj, t0: performance.now() } : { take: obj, t0: performance.now() };
   updateTakeUi();
-  setStatus(`Previewing "${take.name}". Esc or the button stops it.`);
+  setStatus(`Previewing "${obj.name}". Esc or the button stops it.`);
 }
+const previewTake = (take) => startPreview(take, false);
+const previewEdit = (ed) => startPreview(ed, true);
 
 // ---------------------------------------------------------------------------
 // What the timeline is driving
@@ -3215,8 +3455,24 @@ function previewTake(take) {
 // ---------------------------------------------------------------------------
 let tlTarget = "";
 
-function currentTake() {
-  return tlTarget.startsWith("take:") ? (takes.find(c => c.id === tlTarget.slice(5)) || null) : null;
+const currentTake = () => tlTarget.startsWith("take:") ? takeById(tlTarget.slice(5)) : null;
+const currentEdit = () => tlTarget.startsWith("edit:") ? editById(tlTarget.slice(5)) : null;
+const targetName = () => {
+  const ed = currentEdit(); if (ed) return ed.name;
+  const t = currentTake(); if (t) return t.name;
+  return tlTarget === "shot" ? "the waypoints" : tlTarget === "all" ? "every take" : "";
+};
+// Everything the transport can play has a length and a pose at a time. "All
+// takes" is a render instruction, not a thing to play, so it has neither.
+function targetDuration() {
+  const ed = currentEdit(); if (ed) return editDuration(ed);
+  const t = currentTake(); if (t) return takeDuration(t);
+  return tlTarget === "shot" ? shot.duration : 0;
+}
+function targetPose(time) {
+  const ed = currentEdit(); if (ed) return sampleEdit(ed, time);
+  const t = currentTake(); if (t) return sampleTake(t, time);
+  return null;
 }
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`
   + `.${String(Math.floor((s % 1) * 100)).padStart(2, "0")}`;
@@ -3227,6 +3483,9 @@ function updateTlTarget() {
   const opts = [];
   if (shot.points.length) opts.push(["shot", `Waypoint shot (${shot.points.length})`]);
   for (const c of takes) opts.push(["take:" + c.id, c.name]);
+  for (const e of edits) opts.push(["edit:" + e.id, `Edit: ${e.name}`]);
+  // The one thing a selector cannot say that the old per-take checkboxes could.
+  if (takes.length > 1) opts.push(["all", `All takes (${takes.length})`]);
   if (!opts.length) opts.push(["", "nothing recorded yet"]);
   const want = tlTarget;
   sel.innerHTML = opts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("");
@@ -3235,15 +3494,18 @@ function updateTlTarget() {
 }
 
 function updateTransport() {
-  const take = currentTake();
-  const dur = take ? takeDuration(take) : (tlTarget === "shot" ? shot.duration : 0);
+  const take = currentTake(), ed = currentEdit();
+  const dur = targetDuration();
   $("tpTotal").textContent = fmtClock(dur);
   $("tpPlay").disabled = !dur;
   $("tpHome").disabled = !dur;
-  $("tpScrub").disabled = !take;            // takes scrub; a waypoint shot does not yet
-  $("tlInfo").textContent = take ? `${procOf(take).pts.length} points`
+  $("tpScrub").disabled = !(take || ed);    // these scrub; a waypoint shot does not yet
+  $("tlInfo").textContent = ed ? `${editLayout(ed).length} blocks`
+    : take ? `${procOf(take).pts.length} points`
     : (tlTarget === "shot" ? `${shot.points.length} waypoints` : "");
   if (!takePreview && !shot.playing) { $("tpTime").textContent = fmtClock(0); $("tpScrub").value = 0; }
+  renderTimeline();
+  updateEstimate();
 }
 
 // Runs every frame. A play button that does not become a pause button, over a
@@ -3255,7 +3517,7 @@ function updateTransportClock() {
   const take = currentTake();
   let t = 0, dur = 0, playing = false;
   if (takePreview) {
-    dur = takeDuration(takePreview.take);
+    dur = previewDur();
     t = Math.min(dur, (performance.now() - takePreview.t0) / 1000);
     playing = true;
   } else if (tlTarget === "shot") {
@@ -3265,9 +3527,10 @@ function updateTransportClock() {
     // the first one ever lit and it never advanced.
     dur = shot.duration; t = clamp01(shot.t) * dur; playing = shot.playing;
   } else {
-    dur = take ? takeDuration(take) : 0;
-    t = dur ? (Number($("tpScrub").value) / 1000) * dur : 0;
+    dur = targetDuration();
+    t = dur && !$("tpScrub").disabled ? (Number($("tpScrub").value) / 1000) * dur : 0;
   }
+  tlPlayheadAt(t, dur);
   $("tpTime").textContent = fmtClock(t);
   if (playing) $("tpScrub").value = dur > 0 ? Math.round((t / dur) * 1000) : 0;
   $("tpIcon").setAttribute("d", playing ? ICON_PAUSE : ICON_PLAY);
@@ -3277,12 +3540,11 @@ function updateTransportClock() {
 // Scrubbing a stopped take walks the camera along it, which is the cheapest
 // possible way to find the frame you want to talk about.
 $("tpScrub").oninput = (e) => {
-  const take = currentTake();
-  if (!take) return;
-  const dur = takeDuration(take);
+  const dur = targetDuration();
+  if (!dur || $("tpScrub").disabled) return;
   const t = (Number(e.target.value) / 1000) * dur;
-  if (takePreview && takePreview.take === take) takePreview.t0 = performance.now() - t * 1000;
-  else { cine.mode = "free"; applyPose(sampleTake(take, t)); }
+  if (takePreview) takePreview.t0 = performance.now() - t * 1000;
+  else { cine.mode = "free"; applyPose(targetPose(t)); }
   $("tpTime").textContent = fmtClock(t);
 };
 
@@ -3293,12 +3555,14 @@ $("tpScrub").oninput = (e) => {
 $("tlTarget").onchange = (e) => {
   tlTarget = e.target.value;
   updateTransport();
+  renderShotStrip();                                // the chips follow the selection now
   if (motionRec || bakeState.running) return;       // mid-take or mid-render, stay put
   if (takePreview) { takePreview = null; updateTakeUi(); }
   if (shot.playing) stopShot();
-  const take = currentTake();
-  if (take) { cine.mode = "free"; applyPose(sampleTake(take, 0)); setStatus(`Loaded "${take.name}", at its first frame.`); }
-  else if (tlTarget === "shot" && shot.points.length) goToWaypoint(0);
+  if (tlTarget === "shot") { if (shot.points.length) goToWaypoint(0); return; }
+  if (tlTarget === "all") { setStatus(`${takes.length} takes selected. Render writes one file each.`); return; }
+  const pose = targetPose(0);
+  if (pose) { cine.mode = "free"; applyPose(pose); setStatus(`Loaded "${targetName()}", at its first frame.`); }
 };
 // Named up front, because a take you have to find and rename afterwards is a
 // take called "take 07" for ever.
@@ -3310,16 +3574,16 @@ $("tpRec").onclick = () => {
   startMotionRec(name.trim() || suggested);
 };
 $("tpHome").onclick = () => {
-  const take = currentTake();
-  if (take) {
-    if (takePreview && takePreview.take === take) takePreview.t0 = performance.now();
-    else { cine.mode = "free"; applyPose(sampleTake(take, 0)); }
-    $("tpScrub").value = 0;
-  } else if (tlTarget === "shot" && shot.points.length) {
-    goToWaypoint(0);
-  }
+  if (tlTarget === "shot") { if (shot.points.length) goToWaypoint(0); return; }
+  const pose = targetPose(0);
+  if (!pose) return;
+  if (takePreview) takePreview.t0 = performance.now();
+  else { cine.mode = "free"; applyPose(pose); }
+  $("tpScrub").value = 0;
 };
 $("tpPlay").onclick = () => {
+  const ed = currentEdit();
+  if (ed) { previewEdit(ed); return; }
   const take = currentTake();
   if (take) { previewTake(take); return; }
   if (tlTarget === "shot") shot.playing ? stopShot() : playShot(false);
@@ -3328,9 +3592,216 @@ $("tpPlay").onclick = () => {
 function updatePreview() {
   if (!takePreview) return;
   const time = (performance.now() - takePreview.t0) / 1000;
-  applyPose(sampleTake(takePreview.take, time));
-  if (time >= takeDuration(takePreview.take)) { takePreview = null; updateTakeUi(); setStatus("Preview finished."); }
+  applyPose(previewPose(time));
+  if (time >= previewDur()) { takePreview = null; updateTakeUi(); renderTimeline(); setStatus("Preview finished."); }
 }
+
+// ---------------------------------------------------------------------------
+// The timeline body: the blocks of the selected edit
+//
+// Rebuilt from a signature rather than on every call, because updateTransport
+// runs often and replacing innerHTML under a pointer that is mid-drag would
+// drop the capture and strand the block.
+// ---------------------------------------------------------------------------
+let tlSel = null;                  // id of the selected block
+let tlSig = "";
+let tlDrag = null;
+
+function layoutTlBlocks() {
+  const ed = currentEdit();
+  if (!ed) return;
+  const dur = editDuration(ed) || 1;
+  for (const s of editLayout(ed)) {
+    const el = $("tlBlocks").querySelector(`[data-bid="${s.b.id}"]`);
+    if (!el) continue;
+    el.style.left = (100 * s.t0 / dur) + "%";
+    el.style.width = (100 * s.dur / dur) + "%";
+    const du = el.querySelector(".du");
+    if (du) du.textContent = s.dur.toFixed(1) + "s";
+  }
+}
+
+function renderTimeline() {
+  if (!$("tlTrack")) return;
+  if (tlDrag) { layoutTlBlocks(); return; }
+  const ed = currentEdit();
+  const l = ed ? editLayout(ed) : [];
+  const sig = ed ? JSON.stringify([ed.id, ed.name, tlSel, l.map(s => [s.b.id, s.t0.toFixed(3), s.dur.toFixed(3), s.take.name])]) : "none:" + edits.length;
+  const show = !!ed && l.length > 0;
+  $("tlRenameEdit").disabled = !ed;
+  $("tlDelEdit").disabled = !ed;
+  for (const id of ["tlBlkDup", "tlBlkReset", "tlBlkDel"]) $(id).disabled = !(ed && tlSel);
+  if (sig === tlSig) return;
+  tlSig = sig;
+  $("tlTrack").style.display = show ? "" : "none";
+  $("tlActs").style.display = ed ? "" : "none";
+  $("tlEmpty").style.display = show ? "none" : "";
+  $("tlEmpty").textContent = !ed
+    ? (edits.length ? "Pick an edit in the transport selector to lay it out here."
+                    : "No edits yet. Press + Edit, then drag takes in or use the arrow on a take.")
+    : `"${ed.name}" is empty. Drag a take in, or press the arrow on one.`;
+  if (!show) return;
+  const dur = editDuration(ed) || 1;
+  $("tlBlocks").innerHTML = l.map(s => `
+    <div class="tlblk ${tlSel === s.b.id ? "sel" : ""}" data-bid="${s.b.id}"
+         style="left:${(100 * s.t0 / dur).toFixed(4)}%;width:${(100 * s.dur / dur).toFixed(4)}%"
+         title="${esc(s.take.name)} · drag to reorder, drag an edge to trim">
+      <div class="nm">${esc(s.take.name)}</div>
+      <div class="du">${s.dur.toFixed(1)}s</div>
+      <div class="edge l" data-edge="l"></div>
+      <div class="edge r" data-edge="r"></div>
+    </div>`).join("");
+  $("tlHint").textContent = `${l.length} block${l.length > 1 ? "s" : ""} · ${fmtClock(editDuration(ed))}`;
+}
+
+function tlPlayheadAt(t, dur) {
+  clock.t = t; clock.dur = dur;
+  const el = $("tlHead");
+  if (!el) return;
+  const on = !!currentEdit() && dur > 0 && $("tlTrack").style.display !== "none";
+  el.style.display = on ? "" : "none";
+  if (on) el.style.left = (100 * clamp01(t / dur)).toFixed(3) + "%";
+}
+
+// Named afterwards rather than in a modal. Rename is one button away, and a
+// dialog in the middle of assembling something is a dialog you dismiss without
+// reading.
+$("tlNewEdit").onclick = () => {
+  const ed = newEdit();
+  tlTarget = "edit:" + ed.id;
+  tlSel = null; tlSig = "";
+  markDirty(); updateTakeUi(); renderShotStrip();
+  setStatus(`"${ed.name}" created. Drag takes onto the timeline, or press the arrow on a take.`);
+};
+$("tlRenameEdit").onclick = () => {
+  const ed = currentEdit();
+  if (!ed) return;
+  const n = prompt("Edit name", ed.name);
+  if (n === null) return;
+  ed.name = n.trim() || ed.name;
+  tlSig = ""; markDirty(); updateTakeUi();
+};
+$("tlDelEdit").onclick = () => {
+  const ed = currentEdit();
+  if (!ed || !confirm(`Delete the edit "${ed.name}"? The takes in it are not touched.`)) return;
+  edits.splice(edits.indexOf(ed), 1);
+  if (takePreview && takePreview.edit === ed) takePreview = null;
+  tlTarget = ""; tlSel = null; tlSig = "";
+  markDirty(); updateTakeUi(); renderShotStrip();
+  setStatus("Edit deleted. Its takes are still in the list.");
+};
+
+const selBlock = () => {
+  const ed = currentEdit();
+  return ed ? (ed.blocks.find(b => b.id === tlSel) || null) : null;
+};
+$("tlBlkDup").onclick = () => {
+  const ed = currentEdit(), b = selBlock();
+  if (!ed || !b) return;
+  const copy = { id: uuid(), takeId: b.takeId, tIn: b.tIn, tOut: b.tOut };
+  ed.blocks.splice(ed.blocks.indexOf(b) + 1, 0, copy);
+  tlSel = copy.id; tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
+};
+$("tlBlkReset").onclick = () => {
+  const b = selBlock();
+  if (!b) return;
+  b.tIn = null; b.tOut = null;
+  tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
+};
+$("tlBlkDel").onclick = () => {
+  const ed = currentEdit(), b = selBlock();
+  if (!ed || !b) return;
+  ed.blocks.splice(ed.blocks.indexOf(b), 1);
+  tlSel = null; tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
+};
+
+// Edges trim, the middle reorders. One gesture, decided by where it starts.
+$("tlBlocks").addEventListener("pointerdown", (e) => {
+  const el = e.target.closest(".tlblk");
+  const ed = currentEdit();
+  if (!el || !ed) return;
+  const b = ed.blocks.find(x => x.id === el.dataset.bid);
+  if (!b) return;
+  const r = blockRange(b);
+  if (!r) return;
+  tlSel = b.id; tlSig = "";
+  const rect = $("tlTrack").getBoundingClientRect();
+  tlDrag = { b, el, edge: e.target.dataset.edge || null, x0: e.clientX, rect,
+             perPx: (editDuration(ed) || 1) / Math.max(1, rect.width),
+             in0: r.in, out0: r.out, moved: false };
+  el.classList.add("dragging");
+  el.setPointerCapture(e.pointerId);
+  renderTimeline();
+  e.preventDefault();
+});
+
+$("tlBlocks").addEventListener("pointermove", (e) => {
+  if (!tlDrag) return;
+  const ed = currentEdit();
+  const take = ed && takeById(tlDrag.b.takeId);
+  if (!take) return;
+  const dx = e.clientX - tlDrag.x0;
+  if (Math.abs(dx) > 3) tlDrag.moved = true;
+  const dt = dx * tlDrag.perPx;
+  const full = takeDuration(take);
+  if (tlDrag.edge === "l") {
+    tlDrag.b.tIn = clampTo(tlDrag.in0 + dt, 0, Math.max(0, tlDrag.out0 - 0.1));
+    layoutTlBlocks();
+  } else if (tlDrag.edge === "r") {
+    tlDrag.b.tOut = clampTo(tlDrag.out0 + dt, tlDrag.in0 + 0.1, full);
+    layoutTlBlocks();
+  } else if (tlDrag.moved) {
+    const l = editLayout(ed), dur = editDuration(ed) || 1;
+    const tAt = ((e.clientX - tlDrag.rect.left) / Math.max(1, tlDrag.rect.width)) * dur;
+    let want = l.length ? l[l.length - 1].b : null;
+    for (const s of l) if (tAt < s.t0 + s.dur / 2) { want = s.b; break; }
+    const cur = ed.blocks.indexOf(tlDrag.b), target = want ? ed.blocks.indexOf(want) : -1;
+    if (target >= 0 && target !== cur) {
+      ed.blocks.splice(cur, 1);
+      ed.blocks.splice(target, 0, tlDrag.b);
+      layoutTlBlocks();
+    }
+  }
+});
+
+function endTlDrag() {
+  if (!tlDrag) return;
+  const touched = tlDrag.moved || !!tlDrag.edge;
+  tlDrag.el.classList.remove("dragging");
+  tlDrag = null;
+  tlSig = "";
+  renderTimeline();
+  if (touched) { markDirty(); updateTransport(); renderShotStrip(); }
+}
+$("tlBlocks").addEventListener("pointerup", endTlDrag);
+$("tlBlocks").addEventListener("pointercancel", endTlDrag);
+
+// Dropping a take in, at the point you dropped it.
+["dragenter", "dragover"].forEach(ev => $("tlTrack").addEventListener(ev, (e) => {
+  if (!currentEdit()) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "copy";
+  $("tlTrack").classList.add("drop");
+}));
+$("tlTrack").addEventListener("dragleave", () => $("tlTrack").classList.remove("drop"));
+$("tlTrack").addEventListener("drop", (e) => {
+  e.preventDefault();
+  $("tlTrack").classList.remove("drop");
+  const ed = currentEdit();
+  if (!ed) return;
+  const data = e.dataTransfer.getData("text/plain") || "";
+  const take = data.startsWith("take:") ? takeById(data.slice(5)) : null;
+  if (!take) return;
+  const rect = $("tlTrack").getBoundingClientRect();
+  const l = editLayout(ed), dur = editDuration(ed) || 1;
+  const tAt = ((e.clientX - rect.left) / Math.max(1, rect.width)) * dur;
+  let at = ed.blocks.length;
+  for (const s of l) if (tAt < s.t0 + s.dur / 2) { at = ed.blocks.indexOf(s.b); break; }
+  const b = addBlock(ed, take, at);
+  tlSel = b.id; tlSig = "";
+  markDirty(); updateTransport(); renderShotStrip();
+  setStatus(`"${take.name}" added to "${ed.name}".`);
+});
 
 // ---------------------------------------------------------------------------
 // Size estimate
@@ -3341,10 +3812,7 @@ function updatePreview() {
 // ---------------------------------------------------------------------------
 const bakeOpts = () => {
   const [w, h] = $("bakeRes").value.split("x").map(Number);
-  return {
-    w, h, fps: +$("bakeFps").value, format: $("bakeFormat").value,
-    ss: $("bakeSS").checked, join: $("bakeJoin").value,
-  };
+  return { w, h, fps: +$("bakeFps").value, format: $("bakeFormat").value, ss: $("bakeSS").checked };
 };
 const mp4Bitrate = (w, h, fps) => Math.min(120e6, Math.max(8e6, Math.round(w * h * fps * 0.15)));
 function bytesPerFrame(o) {
@@ -3355,24 +3823,53 @@ function bytesPerFrame(o) {
 const fmtBytes = (b) => b >= 1e9 ? (b / 1e9).toFixed(1) + " GB" : b >= 1e6 ? Math.round(b / 1e6) + " MB" : Math.round(b / 1e3) + " KB";
 const fmtDur = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
-function queued() { return takes.filter(t => t.enabled); }
+// The render renders what is selected. One selector drives the viewport, the
+// transport and this, so there is nothing to tick and nothing to get out of
+// step with what you were just looking at. A unit is anything with a name, a
+// length and a pose at a time, which is all the bake ever needed.
+const unitFrames = (u, fps) => Math.max(1, Math.round(u.dur * fps));
+const takeUnit = (t) => ({ name: t.name, dur: takeDuration(t), at: (x) => sampleTake(t, x) });
+
+function renderGroups() {
+  const ed = currentEdit();
+  if (ed) {
+    const l = editLayout(ed);
+    return l.length ? [{ name: slug(ed.name), items: l.map(s => ({
+      name: s.take.name, dur: s.dur, at: (x) => sampleTake(s.take, s.in + x),
+    })) }] : [];
+  }
+  const take = currentTake();
+  if (take) return [{ name: slug(take.name), items: [takeUnit(take)] }];
+  // The one thing the old per-take checkboxes could say that a selector cannot.
+  if (tlTarget === "all") return takes.map(t => ({ name: slug(t.name), items: [takeUnit(t)] }));
+  return [];
+}
+
 function estimateJob() {
   const o = bakeOpts();
-  const list = queued();
-  const frames = list.reduce((n, t) => n + takeFrames(t, o.fps), 0);
-  const seconds = list.reduce((n, t) => n + takeDuration(t), 0);
-  return { ...o, list, frames, seconds, bytes: frames * bytesPerFrame(o) };
+  const groups = renderGroups();
+  const frames = groups.reduce((n, g) => n + g.items.reduce((m, u) => m + unitFrames(u, o.fps), 0), 0);
+  const seconds = groups.reduce((n, g) => n + g.items.reduce((m, u) => m + u.dur, 0), 0);
+  return { ...o, groups, frames, seconds, bytes: frames * bytesPerFrame(o) };
 }
+
 function updateEstimate() {
   const el = $("estimate");
   const j = estimateJob();
-  if (!j.list.length) { el.textContent = "nothing queued"; el.className = ""; return; }
-  const files = j.join === "single" ? 1 : j.list.length;
+  $("bakeBtn").textContent = j.frames ? `Render ${targetName()}` : "Render";
+  if (!j.frames) {
+    el.textContent = tlTarget === "shot" ? "save the waypoints as a take to render them"
+      : currentEdit() ? "this edit is empty"
+      : "select a take or an edit";
+    el.className = "";
+    return;
+  }
+  const files = j.groups.length;
   el.textContent = `${j.frames.toLocaleString()} frames · ${fmtDur(j.seconds)} · ~${fmtBytes(j.bytes)}`
     + (j.format === "mp4" ? ` · ${files} file${files > 1 ? "s" : ""}` : ` · ${files} folder${files > 1 ? "s" : ""}`);
   el.className = j.bytes > 2e9 ? "heavy" : "";
 }
-["bakeRes", "bakeFps", "bakeFormat", "bakeSS", "bakeJoin"].forEach(id => $(id).addEventListener("change", updateEstimate));
+["bakeRes", "bakeFps", "bakeFormat", "bakeSS"].forEach(id => $(id).addEventListener("change", updateEstimate));
 
 // ---------------------------------------------------------------------------
 // The bake
@@ -3443,7 +3940,7 @@ async function pickCodec(w, h, fps) {
 async function runBake() {
   if (bakeState.running) return;
   const j = estimateJob();
-  if (!j.list.length) { setStatus("Tick at least one take first.", true); return; }
+  if (!j.frames) { setStatus("Select a take or an edit in the transport first.", true); return; }
   if (j.format === "mp4" && !window.VideoEncoder) {
     setStatus("This browser has no WebCodecs, so MP4 is unavailable. Use a PNG or JPG sequence.", true); return;
   }
@@ -3479,14 +3976,13 @@ async function runBake() {
 
   const started = performance.now();
   let doneFrames = 0, bytes = 0, skipped = 0;
-  const groups = j.join === "single" ? [{ name: slug(state.projectName || "scene"), items: j.list }]
-                                     : j.list.map(t => ({ name: slug(t.name), items: [t] }));
+  const groups = j.groups;
   try {
     for (const g of groups) {
       if (bakeState.cancel) break;
       const ext = j.format === "jpg" ? "jpg" : j.format;
       const mime = j.format === "png" ? "image/png" : "image/jpeg";
-      const groupFrames = g.items.reduce((n, t) => n + takeFrames(t, j.fps), 0);
+      const groupFrames = g.items.reduce((n, u) => n + unitFrames(u, j.fps), 0);
 
       let muxer = null, encoder = null, outDir = null;
       if (j.format === "mp4") {
@@ -3509,8 +4005,8 @@ async function runBake() {
       }
 
       let gi = 0;
-      for (const take of g.items) {
-        const n = takeFrames(take, j.fps);
+      for (const unit of g.items) {
+        const n = unitFrames(unit, j.fps);
         for (let i = 0; i < n; i++) {
           if (bakeState.cancel) break;
           const fname = j.format === "mp4" ? null : `${g.name}_${pad(gi + 1, 5)}.${ext}`;
@@ -3532,7 +4028,7 @@ async function runBake() {
           if (already > 0) {
             skipped++; bytes += already;
           } else {
-            applyPose(sampleTake(take, i / j.fps));
+            applyPose(unit.at(i / j.fps));
             await settle(i === 0 ? SETTLE_FIRST : SETTLE_FRAMES);
             const src = captureSource(j);                   // ---- no await past this line ----
             if (j.format === "mp4") {
@@ -3552,7 +4048,7 @@ async function runBake() {
 
           gi++; doneFrames++;
           if (doneFrames % 3 === 0 || i === n - 1) {
-            setBakeProgress(`${take.name}  (${g.name})`, gi, groupFrames, doneFrames, j.frames, bytes, started);
+            setBakeProgress(`${unit.name}  (${g.name})`, gi, groupFrames, doneFrames, j.frames, bytes, started);
             await nextFrame();
           }
         }
