@@ -282,6 +282,43 @@ console.log("\n13. handheld is deterministic and opt-in");
   ok("zero means truly off", off.every((v, i) => v === clean[i]));
 }
 
+console.log("\n13b. cutting points by hand");
+{
+  flight({ noise: 0.01 });
+  const base = procOf(clip({ trimAuto: false, detail: 0.7 }));
+  const n0 = base.pts.length;
+  ok("something to work with", n0 > 6, n0);
+
+  const victim = base.pts[Math.floor(n0 / 2)].t;
+  const c = clip({ trimAuto: false, detail: 0.7, cut: [victim] });
+  const pr = procOf(c);
+  ok("the point leaves the curve", pr.pts.length === n0 - 1, `${pr.pts.length} vs ${n0}`);
+  ok("and is kept as a ghost", pr.ghosts.length === 1 && Math.abs(pr.ghosts[0].t - victim) < 1e-9);
+  ok("the curve still spans the same time", Math.abs(pr.srcDur - base.srcDur) < 1e-9);
+
+  // The ends anchor the shot; losing one would move where it starts or stops.
+  const ends = clip({ trimAuto: false, detail: 0.7, cut: [base.pts[0].t, base.pts[n0 - 1].t] });
+  const pe = procOf(ends);
+  ok("the first and last cannot be cut", pe.pts.length === n0 && pe.ghosts.length === 0, pe.pts.length);
+
+  // Stored as times, so a nudge of Detail does not throw the edit away, and a
+  // big move simply leaves it with nothing to apply to.
+  const moved = clip({ trimAuto: false, detail: 0.69, cut: [victim] });
+  ok("survives a nudge of Detail", procOf(moved).ghosts.length === 1, procOf(moved).ghosts.length);
+  const far = clip({ trimAuto: false, detail: 0, cut: [victim] });
+  const pf = procOf(far);
+  ok("goes inert rather than breaking", pf.pts.length >= 2 && pf.ghosts.length <= 1,
+     `${pf.pts.length} pts, ${pf.ghosts.length} ghosts`);
+
+  // A cut take must still be renderable from end to end.
+  let bad = 0;
+  for (let i = 0; i <= 40; i++) {
+    const p = sampleTake(c, (i / 40) * pr.outDur);
+    if (!p || [p.pos[0], p.pos[1], p.pos[2], p.yaw].some(v => !isFinite(v))) bad++;
+  }
+  ok("still samples cleanly end to end", bad === 0, bad + " bad");
+}
+
 console.log("\n14. nothing produces NaN, anywhere");
 {
   flight({ noise: 0.03 });

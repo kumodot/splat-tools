@@ -64,6 +64,19 @@
     border-width: 1px 1px 0 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
   #transport .tcode { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--muted);
     flex: 0 0 auto; }
+  /* Drawn, like the tab arrows, so play and pause share one optical weight
+     instead of inheriting two different glyphs from the font. */
+  .tpicon { width: 10px; height: 10px; display: block; }
+  .tpicon path { fill: currentColor; }
+  #tpPlay { display: flex; align-items: center; justify-content: center; padding: 4px 7px; }
+  /* The transport outlives the timeline on screen, so when the timeline is put
+     away this label is the only thing saying what Play is about to play. */
+  .tpwhat { flex: 0 1 auto; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; background: none; border: 1px solid transparent; color: var(--text);
+    font-size: 11px; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+  .tpwhat:hover { border-color: var(--line); color: var(--accent); }
+  .tpwhat.empty { color: var(--muted); font-style: italic; }
+  #transport input[type=range]:not(:disabled) { cursor: pointer; }
   #transport input[type=range] { flex: 1; min-width: 0; }
 
   #status { position: fixed; left: 0; right: 0; bottom: 0; height: var(--statusH); z-index: 11;
@@ -225,10 +238,15 @@
   #recBadge .name { font-weight: 400; opacity: 0.85; }
   #recBadge .stop { font-weight: 400; opacity: 0.7; border-left: 1px solid rgba(255,255,255,0.35); padding-left: 8px; }
   /* Waypoint strip: the shot as a row of stops you can jump to or throw away. */
-  #shotStrip { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6;
+  /* Under the top bar, and centred on the canvas rather than the window so it
+     does not slide behind the right column. It used to sit at the very top,
+     which the new header then covered completely. */
+  #shotStrip { position: fixed; top: calc(var(--hdr) + 10px); z-index: 13;
+    left: calc((100vw - var(--rightW)) / 2); transform: translateX(-50%);
     display: none; gap: 5px; align-items: center; background: var(--panel); border: 1px solid var(--line);
     border-radius: 9999px; padding: 5px 8px; backdrop-filter: blur(6px); max-width: calc(100vw - 40px);
-    overflow-x: auto; scrollbar-width: none; }
+    overflow-x: auto; scrollbar-width: none;
+    max-width: calc(100vw - var(--rightW) - 40px); transition: left 0.18s ease; }
   #shotStrip.on { display: flex; }
   body.recording #shotStrip { display: none !important; }
   #shotStrip .wp { flex: 0 0 auto; display: flex; align-items: center; background: #171a21;
@@ -491,7 +509,8 @@
 </div>
 
 <div id="transport" class="zone">
-  <button class="small" id="tpPlay" title="Play the current take or shot" disabled>&#9205;</button>
+  <button class="small" id="tpPlay" title="Play the current take or shot" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path id="tpIcon" d="M3 2 L10 6 L3 10 Z"/></svg></button>
+  <button class="tpwhat" id="tpWhat" title="What the transport is driving. Click to open the timeline and change it.">nothing selected</button>
   <span class="tcode" id="tpTime">0:00.00</span>
   <input type="range" id="tpScrub" min="0" max="1000" value="0" disabled>
   <span class="tcode" id="tpTotal">0:00.00</span>
@@ -1792,6 +1811,8 @@ cv.addEventListener("pointerup", (e) => {
   const wasPan = panning;
   dragging = panning = false;
   if (renderer.xr.isPresenting) return;
+  // A point of the current take wins the click, before orbit gets a look at it.
+  if (!wasPan && e.button === 0 && moved < CLICK_SLOP && clickTakePoint(e.clientX, e.clientY)) return;
   if (!wasPan && e.button === 0 && moved < CLICK_SLOP && cine.mode === "orbit") {
     const { point, hit } = pickPoint(e.clientX, e.clientY);
     setOrbitTarget(point);
@@ -2012,6 +2033,14 @@ function rebuildShotGizmo() {
     s.scale.set(0.045, 0.045, 1);      // constant on screen, no attenuation
     s.userData.wp = i;
     shotGizmo.add(s);
+    // A waypoint stores yaw and pitch as well as position, but a row of
+    // identical dots makes it look as though a shot cannot turn its head.
+    // Draw where each one is facing.
+    const dir = new THREE.Vector3(0, 0, -1).applyEuler(new THREE.Euler(p.pitch || 0, p.yaw || 0, 0, "YXZ"));
+    const a = new THREE.Vector3(p.pos[0], p.pos[1] + EYE_HEIGHT, p.pos[2]);
+    shotGizmo.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([a, a.clone().addScaledVector(dir, 0.5)]),
+      new THREE.LineBasicMaterial({ color: 0xe4572e, transparent: true, opacity: 0.75, depthTest: false })));
   });
   if (shot.curve) {
     const pts = shot.curve.getPoints(Math.max(32, shot.points.length * 24))
@@ -2024,8 +2053,119 @@ function rebuildShotGizmo() {
 }
 
 function updateShotGizmo() {
-  shotGizmo.visible = shot.points.length > 0 && !shot.playing
+  // Visible during playback too, now that passing one means something: the
+  // markers behind the playhead light up, so the shot reads as a thing being
+  // travelled through rather than a camera drifting past scenery.
+  shotGizmo.visible = shot.points.length > 0
     && !document.body.classList.contains("recording") && !renderer.xr.isPresenting;
+  if (!shotGizmo.visible) return;
+  const n = shot.points.length;
+  const reached = shot.playing && shot.duration > 0 && n > 1
+    ? (shot.t / shot.duration) * (n - 1)
+    : -1;
+  for (const c of shotGizmo.children) {
+    if (!c.isSprite) continue;
+    const past = reached >= 0 && c.userData.wp <= reached + 0.001;
+    c.material.color.setHex(past ? 0x5ee0c1 : 0xffffff);
+    c.material.opacity = reached >= 0 && !past ? 0.45 : 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The take's own points, out in the world
+//
+// Waypoints are a separate editable shot you bake out of a take. These are the
+// take itself: exactly what the Detail slider leaves behind, so they move when
+// you move it. Clicking one takes it out of the curve and the rest reinterpolate.
+//
+// Nothing is destroyed. A removed point stays on screen as a hollow marker and
+// clicking it puts it back, which is the only honest way to offer deletion in an
+// app with no undo stack.
+// ---------------------------------------------------------------------------
+function dotTexture(filled) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d");
+  g.beginPath(); g.arc(32, 32, 20, 0, Math.PI * 2);
+  if (filled) { g.fillStyle = "#5ee0c1"; g.fill(); }
+  g.lineWidth = 8; g.strokeStyle = filled ? "#0b0d12" : "#e4572e"; g.stroke();
+  return new THREE.CanvasTexture(c);
+}
+const DOT_LIVE = dotTexture(true), DOT_CUT = dotTexture(false);
+
+const takeGizmo = new THREE.Group();
+takeGizmo.renderOrder = 998;
+scene.add(takeGizmo);
+let takeGizmoKey = "";
+
+function rebuildTakeGizmo() {
+  const take = currentTake();
+  const key = take ? `${take.id}:${take._rev || 0}` : "";
+  if (key === takeGizmoKey) return;          // nothing changed, keep the meshes
+  takeGizmoKey = key;
+  for (let i = takeGizmo.children.length - 1; i >= 0; i--) {
+    const c = takeGizmo.children[i];
+    takeGizmo.remove(c);
+    c.geometry?.dispose?.();
+    c.material?.dispose?.();
+  }
+  if (!take) return;
+  const pr = procOf(take);
+  const put = (q, cut) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: cut ? DOT_CUT : DOT_LIVE, depthTest: false, transparent: true, sizeAttenuation: false }));
+    s.position.set(q.p[0], q.p[1] + EYE_HEIGHT, q.p[2]);
+    const r = cut ? 0.016 : 0.020;
+    s.scale.set(r, r, 1);
+    s.userData.cutTime = q.t;
+    s.userData.isCut = cut;
+    takeGizmo.add(s);
+  };
+  pr.pts.forEach(q => put(q, false));
+  pr.ghosts.forEach(q => put(q, true));
+  if (pr.pts.length > 1) {
+    const line = [];
+    for (let i = 0; i <= 240; i++) {
+      const p = evalCR(pr.pts, (i / 240) * pr.srcDur);
+      if (p) line.push(new THREE.Vector3(p.pos[0], p.pos[1] + EYE_HEIGHT, p.pos[2]));
+    }
+    takeGizmo.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(line),
+      new THREE.LineBasicMaterial({ color: 0x5ee0c1, transparent: true, opacity: 0.5, depthTest: false })));
+  }
+}
+
+function updateTakeGizmo() {
+  rebuildTakeGizmo();
+  takeGizmo.visible = takeGizmo.children.length > 0 && !takePreview && !bakeState.running
+    && !document.body.classList.contains("recording") && !renderer.xr.isPresenting;
+}
+
+// Returns true when a point was hit, so the caller knows not to also treat the
+// click as "orbit around this".
+function clickTakePoint(clientX, clientY) {
+  const take = currentTake();
+  if (!take || !takeGizmo.visible) return false;
+  const rect = cv.getBoundingClientRect();
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1), camera);
+  const hits = ray.intersectObjects(takeGizmo.children.filter(c => c.isSprite), false);
+  if (!hits.length) return false;
+  const hit = hits[0].object.userData;
+  const f = fxOf(take);
+  f.cut = f.cut || [];
+  if (hit.isCut) f.cut = f.cut.filter(t => Math.abs(t - hit.cutTime) > CUT_EPS);
+  else f.cut.push(hit.cutTime);
+  fxTouched(take);
+  markDirty();
+  updateTakeUi();
+  const pr = procOf(take);
+  setStatus(hit.isCut
+    ? `Point back in, ${pr.pts.length} on the curve.`
+    : `Point removed, ${pr.pts.length} left. Click the hollow marker to put it back.`);
+  return true;
 }
 
 function goToWaypoint(i) {
@@ -2265,7 +2405,8 @@ const openTakes = new Set();       // which clips have their filter panel showin
 const clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
 const clampTo = (v, a, b) => v < a ? a : v > b ? b : v;
 
-const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0, shake: 0 });
+const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0, shake: 0, cut: [] });
+const CUT_EPS = 0.012;              // how near a stored time must be to match a point
 const srcOf = (clip) => sources.find(s => s.id === clip.srcId);
 function fxOf(clip) { if (!clip.fx) clip.fx = newFx(); return clip.fx; }
 
@@ -2297,6 +2438,7 @@ function stopMotionRec() {
   sources.push(src);
   const clip = { id: uuid(), srcId: src.id, name, enabled: true, fx: newFx() };
   takes.push(clip);
+  tlTarget = "take:" + clip.id;     // what you just shot is what you want to look at
   markDirty();
   updateTakeUi();
   const pr = procOf(clip);
@@ -2585,7 +2727,7 @@ function applyShake(pose, t, amt, seed) {
 function buildProc(clip) {
   const rev = clip._rev || 0;
   const src = srcOf(clip), f = fxOf(clip);
-  if (!src || !src.samples.length) return { pts: [], srcDur: 0, outDur: 0, tIn: 0, tOut: 0, rawDur: 0, seed: 0, rev };
+  if (!src || !src.samples.length) return { pts: [], ghosts: [], srcDur: 0, outDur: 0, tIn: 0, tOut: 0, rawDur: 0, seed: 0, rev };
   const s = src.samples, yaws = yawsOf(src), rawDur = s[s.length - 1].t;
 
   let tIn, tOut;
@@ -2627,7 +2769,37 @@ function buildProc(clip) {
     pts = decimatePts(pts, kk * 0.06 * reach, kk * 0.12);
   }
 
-  return { pts, srcDur, outDur: srcDur / clampTo(f.speed, 0.05, 20),
+  // Points taken out by hand, applied last so the Detail slider still owns
+  // everything before this. They are stored as TIMES, not indices: an index
+  // means nothing once Detail redistributes the points, while a time still
+  // refers to roughly the same moment of the shot. So an edit survives a nudge
+  // of the slider, and simply stops applying when that point is gone.
+  const cuts = f.cut || [];
+  const ghosts = [];
+  if (cuts.length && pts.length > 2) {
+    const drop = new Set();
+    for (const c of cuts) {
+      let best = -1, bestD = Infinity;
+      for (let i = 1; i < pts.length - 1; i++) {          // never cut the ends
+        if (drop.has(i)) continue;
+        const d = Math.abs(pts[i].t - c);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best < 0) continue;
+      // The tolerance follows the local spacing rather than being a fixed
+      // number of milliseconds. Nudging Detail moves every point a little, and
+      // a fixed window threw every edit away for a one-percent change; scaling
+      // it means a cut keeps meaning the same point as the curve thins out,
+      // while still never reaching across a gap to swallow a different one.
+      const gap = Math.min(pts[best].t - pts[best - 1].t, pts[best + 1].t - pts[best].t);
+      if (bestD <= Math.max(CUT_EPS, gap * 0.5)) drop.add(best);
+    }
+    const keep = [];
+    pts.forEach((q, i) => { if (drop.has(i)) ghosts.push(q); else keep.push(q); });
+    pts = keep;
+  }
+
+  return { pts, ghosts, srcDur, outDur: srcDur / clampTo(f.speed, 0.05, 20),
            tIn, tOut, rawDur, spikes, seed: seedOf(clip.id), rev };
 }
 function procOf(clip) {
@@ -2682,6 +2854,7 @@ function fxSlider(label, act, val, text, title) {
        + `<span class="fxval" data-fxval="${act}">${text}</span></div>`;
 }
 const pctTxt = (v) => v > 0.004 ? `${Math.round(v * 100)}%` : "off";
+const dotsTxt = (pr) => `${pr.pts.length} pts` + (pr.ghosts.length ? ` &minus;${pr.ghosts.length}` : "");
 const speedTxt = (f, pr) => `${f.speed.toFixed(2)}x · ${pr.outDur.toFixed(1)}s`;
 
 function takeCard(clip) {
@@ -2695,7 +2868,7 @@ function takeCard(clip) {
       <span class="fxto" data-fxval="trim" title="Full length of the recording">/ ${pr.rawDur.toFixed(1)}s</span>
       <button class="tbtn auto ${f.trimAuto ? "on" : ""}" data-tact="trimauto" title="Find the still head and tail again">auto</button>
     </div>
-    ${fxSlider("Detail", "detail", f.detail, `${pr.pts.length} pts`, "Fewer points and a smoother curve. The recording itself is untouched.")}
+    ${fxSlider("Detail", "detail", f.detail, dotsTxt(pr), "Fewer points and a smoother curve. The recording itself is untouched.")}
     ${fxSlider("Speed", "speed", Math.log2(f.speed), speedTxt(f, pr), "Retime the whole clip")}
     ${fxSlider("Ease", "ease", f.ease, pctTxt(f.ease), "Ease in and out of the move")}
     ${fxSlider("Handheld", "shake", f.shake, pctTxt(f.shake), "Add a held-camera wobble")}
@@ -2741,7 +2914,7 @@ function updateTakeUi() {
 function patchTakeRow(row, clip) {
   const pr = procOf(clip), f = fxOf(clip);
   const set = (k, txt) => { const e = row.querySelector(`[data-fxval="${k}"]`); if (e) e.textContent = txt; };
-  set("detail", `${pr.pts.length} pts`);
+  set("detail", dotsTxt(pr));
   set("speed", speedTxt(f, pr));
   set("ease", pctTxt(f.ease));
   set("shake", pctTxt(f.shake));
@@ -2885,12 +3058,59 @@ function updateTransport() {
   const dur = take ? takeDuration(take) : (tlTarget === "shot" ? shot.duration : 0);
   $("tpTotal").textContent = fmtClock(dur);
   $("tpPlay").disabled = !dur;
+  $("tpScrub").disabled = !take;            // takes scrub; a waypoint shot does not yet
   $("tlInfo").textContent = take ? `${procOf(take).pts.length} points`
     : (tlTarget === "shot" ? `${shot.points.length} waypoints` : "");
-  if (!takePreview && !shot.playing) $("tpTime").textContent = fmtClock(0);
+  const what = take ? take.name : (tlTarget === "shot" ? "Waypoint shot" : "");
+  $("tpWhat").textContent = what || "nothing selected";
+  $("tpWhat").classList.toggle("empty", !what);
+  if (!takePreview && !shot.playing) { $("tpTime").textContent = fmtClock(0); $("tpScrub").value = 0; }
 }
 
+// Runs every frame. A play button that does not become a pause button, over a
+// bar that never moves, gives you no way to tell whether anything is happening,
+// which is exactly what it looked like.
+const ICON_PLAY  = "M3 2 L10 6 L3 10 Z";
+const ICON_PAUSE = "M3 2 H5.2 V10 H3 Z M6.8 2 H9 V10 H6.8 Z";
+function updateTransportClock() {
+  const take = currentTake();
+  let t = 0, dur = 0, playing = false;
+  if (takePreview) {
+    dur = takeDuration(takePreview.take);
+    t = Math.min(dur, (performance.now() - takePreview.t0) / 1000);
+    playing = true;
+  } else if (shot.playing) {
+    dur = shot.duration; t = Math.min(dur, shot.t); playing = true;
+  } else {
+    dur = take ? takeDuration(take) : (tlTarget === "shot" ? shot.duration : 0);
+    t = dur ? (Number($("tpScrub").value) / 1000) * dur : 0;
+  }
+  $("tpTime").textContent = fmtClock(t);
+  if (playing) $("tpScrub").value = dur > 0 ? Math.round((t / dur) * 1000) : 0;
+  $("tpIcon").setAttribute("d", playing ? ICON_PAUSE : ICON_PLAY);
+  $("tpPlay").title = playing ? "Stop" : "Play the current take or shot";
+}
+
+// Scrubbing a stopped take walks the camera along it, which is the cheapest
+// possible way to find the frame you want to talk about.
+$("tpScrub").oninput = (e) => {
+  const take = currentTake();
+  if (!take) return;
+  const dur = takeDuration(take);
+  const t = (Number(e.target.value) / 1000) * dur;
+  if (takePreview && takePreview.take === take) takePreview.t0 = performance.now() - t * 1000;
+  else { cine.mode = "free"; applyPose(sampleTake(take, t)); }
+  $("tpTime").textContent = fmtClock(t);
+};
+
 $("tlTarget").onchange = (e) => { tlTarget = e.target.value; updateTransport(); };
+// The label names what is loaded; the selector that changes it lives in the
+// timeline, so clicking the label fetches the timeline rather than growing a
+// second copy of the same control.
+$("tpWhat").onclick = () => {
+  if (layout.notl) setZone("notl", true);
+  $("tlTarget").focus();
+};
 $("tpPlay").onclick = () => {
   const take = currentTake();
   if (take) { previewTake(take); return; }
@@ -3377,6 +3597,8 @@ renderer.setAnimationLoop((t) => {
     updateOrbitMarker();
   }
   updateShotGizmo();     // also runs in XR, where it hides the gizmo
+  updateTakeGizmo();
+  updateTransportClock();
   renderer.render(scene, camera);
 });
 
