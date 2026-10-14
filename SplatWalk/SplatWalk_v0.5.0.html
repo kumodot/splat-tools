@@ -35,7 +35,11 @@
     border: 1px solid var(--line); transition: transform 0.18s ease; }
 
   #topbar { top: 0; left: 0; right: 0; height: var(--hdr); border-width: 0 0 1px;
-    display: flex; align-items: center; gap: 10px; padding: 0 14px; z-index: 12; }
+    display: flex; flex-direction: column; justify-content: center; gap: 4px;
+    padding: 0 14px; z-index: 12; }
+  .tbrow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .tbrow > select { flex: 0 1 200px; min-width: 90px; }
+  .tbrow .sep { flex: 0 0 1px; height: 16px; background: var(--line); margin: 0 4px; }
   #topbar h1 { font-size: 16px; margin: 0; letter-spacing: 0.5px; }
   #topbar .ver { color: var(--accent); font-weight: 600; font-size: 12px; }
   #topbar .spacer { flex: 1; }
@@ -72,14 +76,28 @@
   body.notl     #timeline { transform: translateY(calc(100% + var(--transportH) + 2px)); }
   body.notl     { --tlH: 0px; }
 
-  .zonetab { position: fixed; z-index: 13; display: none; background: var(--panel);
+  /* Every zone that can be hidden carries its own way to hide itself. A
+     control that only lives in the top bar means crossing the screen to close
+     the thing your cursor is already inside. The strip also gives the timeline
+     somewhere to put its Sequence / Curves tabs later. */
+  .zonehead { flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    height: 21px; padding: 0 4px 0 9px; border-bottom: 1px solid var(--line);
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .zonehead .spacer { flex: 1; }
+  .zoneclose { background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 11px; line-height: 1; padding: 3px 6px; border-radius: 3px; }
+  .zoneclose:hover { color: var(--accent); background: #171a21; }
+
+  /* Put away and bring back are the same control in the same place. A close
+     button in the far corner and a reopen tab somewhere else are two things to
+     learn for one job, and the cursor has to travel between them. The arrow is
+     the only part that changes. */
+  .zonetab { position: fixed; z-index: 13; background: var(--panel);
     border: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1;
     padding: 7px 5px; cursor: pointer; }
   .zonetab:hover { color: var(--accent); border-color: var(--accent); }
-  body.noright #tabRight { display: block; right: 0; top: calc(var(--hdr) + 12px);
+  #tabRight { right: 0; top: calc(var(--hdr) + 12px);
     border-right: none; border-radius: 5px 0 0 5px; }
-  body.notl    #tabTl    { display: block; left: 12px;
-    bottom: calc(var(--statusH) + var(--transportH)); border-bottom: none; border-radius: 5px 5px 0 0; }
 
   /* Drag handles sit on the edge they move. The element itself is the hit area
      and is deliberately wider than it looks, because an edge you have to hit
@@ -270,17 +288,35 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel">v0.5.0</span>
-  <span class="spacer"></span>
-  <span class="zonetoggles">
-    <label title="Show the timeline (T is taken, use the checkbox)"><input type="checkbox" id="tgTl"> Timeline</label>
-    <label title="Show the right column (1)"><input type="checkbox" id="tgRight" checked> Panel</label>
-  </span>
-  <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
-  <button class="small" id="aboutBtn">About</button>
+  <div class="tbrow">
+    <h1>SplatWalk</h1><span class="ver" id="verLabel">v0.5.0</span>
+    <span class="sep"></span>
+    <label class="hint" style="flex:0 0 auto">Project</label>
+    <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
+    <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
+    <button class="small" id="saveAsBtn" title="Save a copy under a new name">Save as</button>
+    <button class="small" id="newProjectBtn" title="Start an empty project">New</button>
+    <button class="small warn" id="deleteProjectBtn" title="Delete this project">Del</button>
+    <span class="spacer"></span>
+    <span class="hint" id="autosaveHint">autosave on</span>
+  </div>
+  <div class="tbrow">
+    <button class="small" id="exportBtn">Export JSON</button>
+    <button class="small" id="importBtn">Import JSON</button>
+    <input type="file" id="importInput" accept=".json" style="display:none">
+    <button class="small" id="saveViewBtn" title="Store current viewer position as the project start point">Set start point</button>
+    <span class="spacer"></span>
+    <span class="zonetoggles">
+      <label title="Show the timeline"><input type="checkbox" id="tgTl"> Timeline</label>
+      <label title="Show the right column (1)"><input type="checkbox" id="tgRight" checked> Panel</label>
+    </span>
+    <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
+    <button class="small" id="aboutBtn">About</button>
+  </div>
 </div>
 
 <div id="right" class="zone">
+  <div class="zonehead"><span>Properties</span></div>
   <div id="props">
   <section>
     <div class="row">
@@ -291,27 +327,6 @@
     <div class="row tight">
       <input type="url" id="urlInput" placeholder="URL or splats/scene.spz">
       <button id="addUrlBtn">Add URL</button>
-    </div>
-  </section>
-
-  <section>
-    <h2>Projects</h2>
-    <div class="row">
-      <label class="hint" style="flex:0 0 auto">Open</label>
-      <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
-    </div>
-    <div class="row">
-      <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
-      <button class="small" id="saveAsBtn" title="Save a copy under a new name">Save as</button>
-      <button class="small" id="newProjectBtn" title="Start an empty project">New</button>
-      <button class="small warn" id="deleteProjectBtn" title="Delete this project">Del</button>
-    </div>
-    <div class="row tight">
-      <button class="small" id="exportBtn">Export JSON</button>
-      <button class="small" id="importBtn">Import JSON</button>
-      <input type="file" id="importInput" accept=".json" style="display:none">
-      <button class="small" id="saveViewBtn" title="Store current viewer position as the project start point">Set start point</button>
-      <span class="hint" id="autosaveHint" style="flex:1 0 100%">autosave on</span>
     </div>
   </section>
 
@@ -435,11 +450,13 @@
 </div><!-- /#right -->
 
 <div id="timeline" class="zone">
+  <div class="zonehead"><span>Timeline</span></div>
   <div id="tlBody">Timeline goes here. Takes will be laid out on it, and the curve editor
     for a single take is a mode of this same panel.</div>
 </div>
 
 <div id="transport" class="zone">
+  <button class="small" id="tgTlBtn" title="Show or hide the timeline">&#9650;</button>
   <button class="small" id="tpPlay" title="Play the current take or shot" disabled>&#9205;</button>
   <span class="tcode" id="tpTime">0:00.00</span>
   <input type="range" id="tpScrub" min="0" max="1000" value="0" disabled>
@@ -449,7 +466,6 @@
 <div id="status">Ready.</div>
 
 <button class="zonetab" id="tabRight" title="Show the panel">&#9666;</button>
-<button class="zonetab" id="tabTl" title="Show the timeline">&#9652;</button>
 <div id="gripRight" class="grip" title="Drag to resize. Double-click to reset."></div>
 <div id="gripTl" class="grip" title="Drag to resize. Double-click to reset."></div>
 
@@ -478,8 +494,8 @@
   <div class="col">
     <h4>Panels</h4>
     <div><kbd>1</kbd> side panel</div>
-    <div><kbd>2</kbd> project &nbsp; <kbd>3</kbd> cine</div>
-    <div><kbd>4</kbd> takes &nbsp; <kbd>5</kbd> settings</div>
+    <div><kbd>2</kbd> cine &nbsp; <kbd>3</kbd> takes</div>
+    <div><kbd>4</kbd> settings</div>
     <div><kbd>0</kbd> clean view, nothing on screen</div>
     <div><kbd>Esc</kbd> stop recording / bring it all back</div>
     <div><kbd>drag</kbd> the bar under the list to resize it</div>
@@ -702,6 +718,44 @@ function syncFromMesh(item) {
 }
 function round4(v) { return Math.round(v * 10000) / 10000; }
 
+// Fetch into an ArrayBuffer, streaming so the progress bar means something on a
+// 30 MB scene. Falls back to a plain read when the server sends no length or the
+// browser gives no stream, in which case the bar simply does not move.
+async function fetchBytes(url, onProgress) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} fetching ${url}`);
+  const total = Number(res.headers.get("content-length")) || 0;
+  if (!res.body || !total) return await res.arrayBuffer();
+  const reader = res.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress(loaded, total);
+  }
+  const out = new Uint8Array(loaded);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out.buffer;
+}
+
+// `mesh.initialized` resolving does not mean the count is in: with lod:true the
+// worker is still packing, and reading numSplats right then returns zero for a
+// scene that is about to draw perfectly well. Waiting a little is the
+// difference between a correct count and calling a good load a failure.
+async function splatCount(mesh, tries = 60, gap = 50) {
+  for (let i = 0; i < tries; i++) {
+    const p = mesh.packedSplats;
+    const n = mesh.numSplats || p?.numSplats || p?.lodSplats?.numSplats || 0;
+    if (n) return n;
+    await new Promise(r => setTimeout(r, gap));
+  }
+  return 0;
+}
+
 async function loadItem(item) {
   item.status = "loading";
   item.progress = 0;
@@ -714,8 +768,19 @@ async function loadItem(item) {
       },
     };
     if (item.url) {
-      opts.url = item.url;
-      opts.fileName = item.fileName || item.url.split("/").pop();
+      // SplatMesh in this build of Spark has no URL option. Passing one was
+      // accepted and silently ignored: the mesh came back empty, `initialized`
+      // resolved immediately, numSplats was 0, nothing drew, and the card sat
+      // on "measuring..." for ever because there was nothing to measure. The
+      // network log showed the file was never even requested.
+      //
+      // Fetching here instead leaves one code path into the loader, gives a
+      // real progress bar, and turns a cross-origin failure into a visible
+      // error rather than a scene that is quietly empty.
+      opts.fileBytes = await fetchBytes(item.url, (loaded, total) => {
+        item.progress = loaded / total; updateItemStatus(item);
+      });
+      opts.fileName = item.fileName || item.url.split("/").pop().split("?")[0];
     } else {
       const rec = await idbGet("blobs", item.blobId);
       if (!rec) { item.status = "missing"; renderItems(); return; }
@@ -727,7 +792,11 @@ async function loadItem(item) {
     applyTransform(item);
     scene.add(mesh);
     await mesh.initialized;
-    item.numSplats = mesh.numSplats || mesh.packedSplats?.numSplats || 0;
+    item.numSplats = await splatCount(mesh);
+    // An empty mesh is a failure wearing a success message. Without this the
+    // app reports "Loaded scene.ply (0 splats)", draws nothing, and measures
+    // for ever, which is a far worse bug to track down than an error would be.
+    if (!item.numSplats) throw new Error("loaded, but it contains no splats (wrong format, or the file is truncated)");
     item.stats = null;               // ensureStats() measures once the LOD worker is done
     item.status = "ready";
     setStatus(`Loaded ${item.name} (${fmtCount(item.numSplats)} splats)`);
@@ -1259,6 +1328,13 @@ function applyLayout() {
   const r = $("tgRight"), t = $("tgTl");
   if (r) r.checked = !layout.noright;
   if (t) t.checked = !layout.notl;
+  // The arrow points where the panel will go, so it reads the same whichever
+  // state it is in: out to the right, down to the bottom.
+  const tr = $("tabRight"), tt = $("tgTlBtn");
+  if (tr) { tr.innerHTML = layout.noright ? "&#9666;" : "&#9656;";
+            tr.title = layout.noright ? "Show the panel" : "Hide the panel"; }
+  if (tt) { tt.innerHTML = layout.notl ? "&#9650;" : "&#9660;";
+            tt.title = layout.notl ? "Show the timeline" : "Hide the timeline"; }
 }
 function saveLayout(patch) {
   if (patch) Object.assign(layout, patch);
@@ -1315,8 +1391,8 @@ $("gripProps").addEventListener("dblclick", resetGrip("propsFlex"));
 
 $("tgRight").onchange = (e) => setZone("noright", e.target.checked);
 $("tgTl").onchange = (e) => setZone("notl", e.target.checked);
-$("tabRight").onclick = () => setZone("noright", true);
-$("tabTl").onclick = () => setZone("notl", true);
+$("tabRight").onclick = () => setZone("noright", !!layout.noright);
+$("tgTlBtn").onclick = () => setZone("notl", !!layout.notl);
 
 // Clicking a section heading folds it away. Cheapest height there is.
 document.querySelectorAll("#props section h2, #layers section h2").forEach((h2, i) => {
@@ -1415,10 +1491,6 @@ $("addFilesBtn").onclick = () => $("fileInput").click();
 $("fileInput").onchange = async () => { await addFiles([...$("fileInput").files]); $("fileInput").value = ""; };
 $("addUrlBtn").onclick = () => { addUrl($("urlInput").value); $("urlInput").value = ""; };
 $("urlInput").onkeydown = (e) => { if (e.key === "Enter") $("addUrlBtn").click(); };
-$("toggleUi").onclick = () => {
-  const ui = $("ui"); ui.classList.toggle("collapsed");
-  $("toggleUi").textContent = ui.classList.contains("collapsed") ? "Show panel" : "Hide panel";
-};
 function updateCineUi() {
   $("cineFree").style.borderColor = cine.mode === "free" ? "var(--accent)" : "";
   $("cineOrbit").style.borderColor = cine.mode === "orbit" ? "var(--accent)" : "";
@@ -1477,7 +1549,6 @@ addEventListener("keydown", (e) => {
   if (e.code === "Digit2") foldSection(0);
   if (e.code === "Digit3") foldSection(1);
   if (e.code === "Digit4") foldSection(2);
-  if (e.code === "Digit5") foldSection(3);
   if (e.code === "Digit0") toggleCleanView();
   if (e.code === "Escape") escapeHatch();
 });
@@ -1981,9 +2052,9 @@ cv.addEventListener("pointermove", showCursorBriefly);
 cv.addEventListener("pointerleave", () => {
   if (!cursorPinned) { clearTimeout(cursorTimer); document.body.classList.remove("nocursor"); }
 });
-$("ui").addEventListener("pointerenter", () => {
+document.querySelectorAll(".zone").forEach(z => z.addEventListener("pointerenter", () => {
   if (!cursorPinned) { clearTimeout(cursorTimer); document.body.classList.remove("nocursor"); }
-});
+}));
 
 let recorder = null, recChunks = [], recStart = 0;
 
