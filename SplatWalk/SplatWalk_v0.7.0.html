@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.6.5</title>
+<title>SplatWalk v0.7.0</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -498,7 +498,7 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.6.5</span>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.7.0</span>
   <span class="sep"></span>
   <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
   <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
@@ -558,6 +558,24 @@
   </section>
 
   <section>
+    <h2>Waypoint take</h2>
+    <div class="row">
+      <button class="small" id="shotAdd" title="K">+ Waypoint</button>
+      <span class="hint" id="shotCount" style="flex:1">no stops yet</span>
+      <button class="small warn" id="shotClear">Clear</button>
+    </div>
+    <div class="row">
+      <label style="flex:0 0 auto">Seconds</label>
+      <input type="number" id="shotDuration" value="12" min="1" max="600" step="1">
+      <label title="The take returns to its first pose, so it cycles with no jump."><input type="checkbox" id="shotLoop"> loop</label>
+    </div>
+    <div class="row tight">
+      <button class="primary small" id="wpToTake" title="Turn these stops into a take. The staging area is cleared.">Save as take</button>
+      <span class="hint" id="recHint"></span>
+    </div>
+  </section>
+
+  <section>
     <h2>Camera</h2>
     <div class="row">
       <label style="flex:0 0 auto" title="Gimbal damping. What you see is what gets recorded into a take.">Gimbal</label>
@@ -578,24 +596,6 @@
       <label style="flex:0 0 auto">Orbit speed</label>
       <input type="range" id="orbitSpeed" min="-0.6" max="0.6" step="0.01" value="0.12" style="flex:1">
       <span class="hint" id="orbitSpeedVal" style="flex:0 0 60px"></span>
-    </div>
-  </section>
-
-  <section>
-    <h2>Waypoints</h2>
-    <div class="row">
-      <button class="small" id="shotAdd" title="K">+ Waypoint</button>
-      <span class="hint" id="shotCount" style="flex:1">no shot yet</span>
-      <button class="small warn" id="shotClear">Clear</button>
-    </div>
-    <div class="row">
-      <label style="flex:0 0 auto">Seconds</label>
-      <input type="number" id="shotDuration" value="12" min="1" max="600" step="1">
-      <label><input type="checkbox" id="shotLoop"> loop</label>
-    </div>
-    <div class="row tight">
-      <button class="small" id="wpToTake" title="Turn these waypoints into a take, with all the same filters. They stay here afterwards.">Save as take</button>
-      <span class="hint" id="recHint"></span>
     </div>
   </section>
 
@@ -771,7 +771,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.6.5</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.7.0</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -799,8 +799,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.6.5";
-const APP_BUILT = "2026-10-14 04:40 UTC";
+const APP_VERSION = "0.7.0";
+const APP_BUILT = "2026-10-14 04:45 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -809,7 +809,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.6.5, so a reload could not tell you whether you
+// changes all shipped as v0.7.0, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1366,7 +1366,7 @@ async function loadProject(name) {
                      fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.6.5 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.7.0 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1609,11 +1609,7 @@ function renderProps() {
       + `<div class="takewrap open" data-tid="${take.id}">${takeCard(take)}</div>`;
     return;
   }
-  if (tlTarget === "shot") {
-    el.innerHTML = propsHead("Waypoints", `${shot.points.length} stop${shot.points.length === 1 ? "" : "s"}`)
-      + `<div class="meta">Save them as a take to give them filters, timing and a place in an edit.</div>`;
-    return;
-  }
+
   el.innerHTML = `<div class="panelempty">Nothing selected.<br>Pick a splat, a take or an edit and its
     properties appear here.</div>`;
 }
@@ -1887,8 +1883,10 @@ function updateCineUi() {
   $("orbitRow").style.display = cine.mode === "orbit" ? "" : "none";
   setOrbitChrome();
   $("shotCount").textContent = shot.points.length
-    ? `${shot.points.length} waypoint${shot.points.length > 1 ? "s" : ""}`
-    : "no shot yet";
+    ? `${shot.points.length} stop${shot.points.length > 1 ? "s" : ""}, unsaved`
+    : "no stops yet";
+  $("wpToTake").disabled = shot.points.length < 2;
+  $("shotClear").disabled = !shot.points.length;
   updateTlTarget();
   const rec = recorder && recorder.state === "recording";
   $("shotRecord").textContent = rec ? "Stop capture" : "Capture to video";
@@ -1918,9 +1916,13 @@ $("shotAdd").onclick = addWaypoint;
 $("shotClear").onclick = clearShot;
 $("shotDuration").onchange = (e) => { shot.duration = Math.max(1, parseFloat(e.target.value) || 12); markDirty(); };
 $("shotLoop").onchange = (e) => { shot.loop = e.target.checked; buildShotCurve(); markDirty(); };
+// Capture writes whatever is on screen to a webm. If something is loaded in
+// the transport it starts that too, so one press gives you a recording of it.
 $("shotRecord").onclick = () => {
-  if (recorder && recorder.state === "recording") { stopShot(); return; }
-  shot.curve ? playShot(true) : startRecording();     // no path: just record the live view
+  if (recorder && recorder.state === "recording") { stopRecording(); updateCineUi(); return; }
+  startRecording();
+  if (targetDuration() > 0 && !takePreview) $("tpPlay").click();
+  updateCineUi();
 };
 
 
@@ -1962,7 +1964,7 @@ function escapeHatch() {
   if (bakeState.running) { bakeState.cancel = true; return; }
   if (motionRec) { stopMotionRec(); return; }
   if (takePreview) { takePreview = null; updateTakeUi(); return; }
-  if (recorder && recorder.state === "recording") { stopShot(); return; }
+  if (recorder && recorder.state === "recording") { stopRecording(); updateCineUi(); return; }
   if (cleanView) { toggleCleanView(); return; }
   if (layout.noright) togglePanel();
   if (cursorPinned) toggleCursor();
@@ -2246,7 +2248,7 @@ function updateOrbitMarker() {
 }
 
 function updateOrbit(dt) {
-  if (cine.mode !== "orbit" || shot.playing) return;
+  if (cine.mode !== "orbit") return;
   orbit.azimuth += orbit.speed * dt;
   const r = orbit.radius, e = orbit.elevation;
   const off = new THREE.Vector3(
@@ -2261,10 +2263,10 @@ function updateOrbit(dt) {
   cam.tPitch = Math.asin(THREE.MathUtils.clamp(look.y / (look.length() || 1), -1, 1));
 }
 
-// A shot is a list of camera stops. Playback runs a Catmull-Rom curve through the
-// positions and eases the angles alongside, so three rough stops become one long
-// continuous move.
-const shot = { points: [], playing: false, t: 0, duration: 12, loop: false, curve: null, yaws: [], pitches: [], at: -1 };
+// A staging area for hand-placed camera stops, not a thing that plays. The
+// curve is still built, because that is what the gizmo draws and what Save as
+// take samples, but nothing here has a playhead any more.
+const shot = { points: [], duration: 12, loop: false, curve: null, yaws: [], pitches: [], at: -1 };
 
 function addWaypoint() {
   shot.points.push({ pos: cam.pos.toArray().map(round4), yaw: round4(cam.yaw), pitch: round4(cam.pitch) });
@@ -2275,7 +2277,7 @@ function addWaypoint() {
 }
 
 function clearShot() {
-  shot.points = []; shot.curve = null; shot.playing = false;
+  shot.points = []; shot.curve = null; shot.at = -1;
   rebuildShotGizmo();
   markDirty(); updateCineUi();
 }
@@ -2352,17 +2354,17 @@ const clock = { t: 0, dur: 0 };
 function updateShotStripState() {
   const el = $("shotStrip");
   if (!el.classList.contains("on") || !stripChips.length) return;
-  const isShot = tlTarget === "shot";
-  const live = isShot ? (shot.playing || shot.at >= 0) : clock.dur > 0;
-  const t = isShot ? clamp01(shot.t) * Math.max(1e-6, shot.duration) : clock.t;
+  const isShot = staging();
+  const live = isShot ? shot.at >= 0 : clock.dur > 0;
+  const t = isShot ? -1 : clock.t;
   // The one you are ON is the last one you went past, not the nearest. Nearest
   // flips to the next block halfway through the one that is actually playing.
   let at = -1;
   stripChips.forEach((c, i) => { if (t >= c.time - 1e-3) at = i; });
   el.querySelectorAll(".wp").forEach((w, i) => {
     const c = stripChips[i];
-    w.classList.toggle("passed", live && !!c && t >= c.time - 1e-3);
-    w.classList.toggle("at", live ? at === i : (isShot && shot.at === i));
+    w.classList.toggle("passed", !isShot && live && !!c && t >= c.time - 1e-3);
+    w.classList.toggle("at", isShot ? shot.at === i : (live && at === i));
   });
 }
 
@@ -2374,7 +2376,7 @@ function updateShotGizmo() {
     && !document.body.classList.contains("recording") && !renderer.xr.isPresenting;
   if (!shotGizmo.visible) return;
   const n = shot.points.length;
-  const reached = n > 1 && (shot.playing || shot.at >= 0) ? clamp01(shot.t) * (n - 1) : -1;
+  const reached = shot.at;
   for (const c of shotGizmo.children) {
     if (!c.isSprite) continue;
     const past = reached >= 0 && c.userData.wp <= reached + 0.001;
@@ -2486,8 +2488,6 @@ function goToWaypoint(i) {
   // Jumping to a waypoint moves the playhead onto it, so pressing play carries
   // on from there rather than starting the shot over.
   shot.at = i;
-  shot.t = shot.points.length > 1 ? i / (shot.points.length - 1) : 0;
-  if (shot.playing) stopShot();
   cine.mode = "free";
   cam.pos.fromArray(p.pos); cam.tPos.fromArray(p.pos);
   cam.yaw = cam.tYaw = p.yaw;
@@ -2526,7 +2526,15 @@ function invEase(ue, e) {
   return (lo + hi) / 2;
 }
 
+// While there are unsaved stops on screen, the chips are those stops: they are
+// the thing being built. Save as take clears them and the chips go back to
+// following whatever the transport is driving.
+const staging = () => shot.points.length > 0;
+
 function stripChipsFor() {
+  if (staging()) {
+    return shot.points.map((_, i) => ({ label: String(i + 1), time: 0, title: `Waypoint ${i + 1}` }));
+  }
   const ed = currentEdit();
   if (ed) return editLayout(ed).map((s, i) => ({ label: String(i + 1), time: s.t0, title: s.take.name }));
   const take = currentTake();
@@ -2542,24 +2550,19 @@ function stripChipsFor() {
     out.sort((a, b) => a.time - b.time);     // Reverse puts the last key first
     return out;
   }
-  if (tlTarget === "shot" && shot.points.length) {
-    const n = shot.points.length, dur = Math.max(1e-6, shot.duration);
-    return shot.points.map((_, i) => ({ label: String(i + 1),
-      time: n > 1 ? (i / (n - 1)) * dur : 0, title: `Waypoint ${i + 1}` }));
-  }
   return [];
 }
 
 function renderShotStrip() {
   const el = $("shotStrip");
-  const isShot = tlTarget === "shot";
+  const isShot = staging();
   stripChips = stripChipsFor();
   el.classList.toggle("on", stripChips.length > 0);
   if (!stripChips.length) {
     el.innerHTML = "";
     return;
   }
-  const label = currentEdit() ? "Edit" : currentTake() ? "Take" : "Shot";
+  const label = isShot ? "Staging" : currentEdit() ? "Edit" : currentTake() ? "Take" : "Take";
   el.innerHTML = `<span class="lbl">${esc(label)}</span>` + stripChips.map((c, i) => `
     <span class="wp">
       <button class="go" data-go="${i}" title="${esc(c.title)}">${c.label}</button>
@@ -2582,7 +2585,7 @@ $("shotStrip").addEventListener("click", (e) => {
   if (del !== undefined) { deleteWaypoint(parseInt(del, 10)); return; }
   if (go === undefined) return;
   const i = parseInt(go, 10);
-  if (tlTarget === "shot") { goToWaypoint(i); return; }
+  if (staging()) { goToWaypoint(i); return; }
   const c = stripChips[i];
   if (c) { seekTo(c.time); setStatus(`${c.title}, at ${fmtClock(c.time)}.`); }
 });
@@ -2624,38 +2627,13 @@ function sampleScalars(arr, u) {
   return THREE.MathUtils.lerp(arr[i], arr[i + 1], f - i);
 }
 
-function playShot(record = false) {
-  if (!shot.curve) { setStatus("Add at least two waypoints first.", true); return; }
-  shot.playing = true;
-  if (shot.t >= 1 - 1e-6) shot.t = 0;      // at the end, start over; otherwise resume
-  cam.smoothing = 0;               // the curve is already smooth; lag would cut corners
-  if (record) startRecording();
-  setStatus("Playing the shot...");
-  updateCineUi();
-}
-
-function stopShot() {
-  shot.playing = false;
-  cam.smoothing = parseFloat($("cineSmooth").value);
-  if (recorder && recorder.state === "recording") stopRecording();
-  updateCineUi();
-}
-
-function updateShot(dt) {
-  if (!shot.playing || !shot.curve) return;
-  shot.t += dt / Math.max(0.5, shot.duration);
-  // Adding dt/duration frame after frame lands on 0.9999999999999999 rather than
-  // 1, so an exact comparison leaves the shot running past its own end.
-  const done = shot.t >= 1 - 1e-6;
-  if (done) shot.t = shot.loop ? shot.t - 1 : 1;
-  // Ease in and out so the move starts and stops without a jolt.
-  const u = shot.loop ? shot.t : shot.t * shot.t * (3 - 2 * shot.t);
-  const p = shot.curve.getPoint(u);
-  cam.pos.copy(p); cam.tPos.copy(p);
-  cam.yaw = cam.tYaw = sampleScalars(shot.yaws, u);
-  cam.pitch = cam.tPitch = sampleScalars(shot.pitches, u);
-  if (done && !shot.loop) stopShot();
-}
+// Waypoints used to be a second kind of move with its own playback, its own
+// loop and its own place in the transport. That is what kept the app feeling
+// like two apps. They are a staging area now: you place stops, you press Save
+// as take, and what you get is a take like any other, which is the thing that
+// plays, renders and goes into an edit. The playback that used to live here
+// went with it, along with the shot that kept looping in the background behind
+// a preview because nothing ever stopped it.
 
 // ---------------------------------------------------------------------------
 // Recording straight off the canvas, so there is no screen capture to set up
@@ -2802,7 +2780,7 @@ const clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
 const clampTo = (v, a, b) => v < a ? a : v > b ? b : v;
 
 const newFx = () => ({ trimAuto: true, tIn: null, tOut: null, detail: 1, speed: 1, ease: 0,
-                       shake: 0, cut: [], reverse: false, timing: "recorded" });
+                       shake: 0, cut: [], reverse: false, timing: "recorded", loop: false });
 const CUT_EPS = 0.012;
 
 // Eight hues that stay apart from each other and stay readable on the dark
@@ -3176,7 +3154,7 @@ function buildProc(clip) {
   }
   pts.push(rawAt(s, yaws, tOut));
   for (const q of pts) q.t -= tIn;
-  const srcDur = Math.max(0.001, tOut - tIn);
+  let srcDur = Math.max(0.001, tOut - tIn);
 
   // Always, and before anything else. A slip of the hand is not a level of
   // detail, so it is not on a slider.
@@ -3232,6 +3210,28 @@ function buildProc(clip) {
     const keep = [];
     pts.forEach((q, i) => { if (drop.has(i)) ghosts.push(q); else keep.push(q); });
     pts = keep;
+  }
+
+  // Loop closes the path by repeating the first key at the end, one average
+  // step after the last one. The last rendered frame then lands just before
+  // the return, so a cycle has no duplicated frame and no jump at the seam.
+  // This is the same fix the waypoint shot needed, as a property of a take.
+  if (f.loop && pts.length > 1) {
+    const first = pts[0], last = pts[pts.length - 1];
+    // The return leg gets the time it deserves at the path's own average
+    // speed, not one key's worth. A densely recorded take has keys 1/60s
+    // apart, and closing it in 1/60s would fling the camera home in a single
+    // frame, which is what a fixed step did.
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += travelBetween(pts[i - 1], pts[i]);
+    const back = travelBetween(last, first);
+    const step = total > 1e-9 ? clampTo(back / total * srcDur, srcDur / (pts.length - 1), srcDur * 4)
+                              : srcDur / (pts.length - 1);
+    let yaw = first.yaw;
+    while (yaw - last.yaw > Math.PI) yaw -= 2 * Math.PI;
+    while (last.yaw - yaw > Math.PI) yaw += 2 * Math.PI;
+    pts = pts.concat([{ ...first, p: first.p.slice(), t: srcDur + step, yaw }]);
+    srcDur += step;
   }
 
   // Last of all, and only the times: the point set is already final, so this
@@ -3447,6 +3447,7 @@ function takeCard(clip) {
     </div>
     <div class="fxrow end">
       <label class="fxchk" title="Play the move backwards. The recording is untouched."><input type="checkbox" data-tact="reverse" ${f.reverse ? "checked" : ""}> Reverse</label>
+      <label class="fxchk" title="Close the path: the move returns to its first pose, and the preview repeats. A render of it cycles with no jump at the seam."><input type="checkbox" data-tact="loop" ${f.loop ? "checked" : ""}> Loop</label>
       <span style="flex:1"></span>
       <button class="small" data-tact="fxreset">Reset filters</button>
       <button class="small" data-tact="towp" title="Turn the filtered path into editable waypoints">To waypoints</button>
@@ -3605,6 +3606,7 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
     return;
   }
   if (act === "reverse") { fxOf(take).reverse = e.target.checked; fxTouched(take); markDirty(); updateTakeUi(); return; }
+  if (act === "loop") { fxOf(take).loop = e.target.checked; fxTouched(take); tlSig = ""; markDirty(); updateTakeUi(); return; }
   if (act === "color") {
     take.color = e.target.dataset.col;
     tlSig = ""; markDirty(); updateTakeUi(); renderTimeline();
@@ -3680,18 +3682,24 @@ function waypointsToTake() {
   const samples = retimeLinear(keys, dur).map(q => ({
     t: round4(q.t), p: q.p.map(round4), yaw: round4(q.yaw), pitch: round4(q.pitch), fov,
   }));
-  const name = `Waypoints ${String(++waypointSeq).padStart(2, "0")} (${n})`;
+  const name = `WaypointTake_${String(++waypointSeq).padStart(2, "0")} (${n})`;
   const src = { id: uuid(), name, samples };
   sources.push(src);
   // Ease on by default, because that fixed smoothstep is what the waypoint
   // preview always applied and what these stops are expected to feel like.
   const clip = { id: uuid(), srcId: src.id, name, enabled: true, color: nextColor(),
-                 fx: { ...newFx(), trimAuto: false, timing: "linear", ease: 1 } };
+                 fx: { ...newFx(), trimAuto: false, timing: "linear", ease: 1, loop: !!shot.loop } };
   takes.push(clip);
   tlTarget = "take:" + clip.id;
+  propsFocus = "clip";
+  // The stops were scaffolding. Leaving them on screen after the take exists
+  // is what made this feel like two overlapping ways of doing one thing, and
+  // it left a second path playing in the background behind every preview.
+  clearShot();
   markDirty();
   updateTakeUi();
-  setStatus(`"${name}" is a take now, with the same filters as any other. The waypoints stay where they are.`);
+  renderShotStrip();
+  setStatus(`"${name}" is a take now, with the filters, timing and render of any other. The staging area is clear.`);
 }
 $("wpToTake").onclick = waypointsToTake;
 
@@ -3741,14 +3749,14 @@ function currentEdit() { return tlTarget.startsWith("edit:") ? editById(tlTarget
 const targetName = () => {
   const ed = currentEdit(); if (ed) return ed.name;
   const t = currentTake(); if (t) return t.name;
-  return tlTarget === "shot" ? "the waypoints" : tlTarget === "all" ? "every take" : "";
+  return tlTarget === "all" ? "every take" : "";
 };
 // Everything the transport can play has a length and a pose at a time. "All
 // takes" is a render instruction, not a thing to play, so it has neither.
 function targetDuration() {
   const ed = currentEdit(); if (ed) return editDuration(ed);
   const t = currentTake(); if (t) return takeDuration(t);
-  return tlTarget === "shot" ? shot.duration : 0;
+  return 0;
 }
 function targetPose(time) {
   const ed = currentEdit(); if (ed) return sampleEdit(ed, time);
@@ -3762,7 +3770,6 @@ function updateTlTarget() {
   const sel = $("tlTarget");
   if (!sel) return;
   const opts = [];
-  if (shot.points.length) opts.push(["shot", `Waypoint shot (${shot.points.length})`]);
   for (const c of takes) opts.push(["take:" + c.id, c.name]);
   for (const e of edits) opts.push(["edit:" + e.id, `Edit: ${e.name}`]);
   // The one thing a selector cannot say that the old per-take checkboxes could.
@@ -3783,9 +3790,8 @@ function updateTransport() {
   $("tpScrub").disabled = !(take || ed);    // these scrub; a waypoint shot does not yet
   $("tlInfo").textContent = ed ? (() => { const n = editLayout(ed).length;
       return `${ed.name} \u00b7 ${n} block${n === 1 ? "" : "s"} \u00b7 ${fmtClock(editDuration(ed))}`; })()
-    : take ? `${procOf(take).pts.length} points`
-    : (tlTarget === "shot" ? `${shot.points.length} waypoints` : "");
-  if (!takePreview && !shot.playing) { $("tpTime").textContent = fmtClock(0); $("tpScrub").value = 0; }
+    : take ? `${procOf(take).pts.length} points` : "";
+  if (!takePreview) { $("tpTime").textContent = fmtClock(0); $("tpScrub").value = 0; }
   renderTimeline();
   updateEstimate();
 }
@@ -3802,12 +3808,6 @@ function updateTransportClock() {
     dur = previewDur();
     t = Math.min(dur, (performance.now() - takePreview.t0) / 1000);
     playing = true;
-  } else if (tlTarget === "shot") {
-    // shot.t is normalised 0..1, not seconds. Reading it as seconds put the
-    // clock at one second on a twelve second shot and, worse, divided it by
-    // the duration a second time when lighting the waypoint chips, so only
-    // the first one ever lit and it never advanced.
-    dur = shot.duration; t = clamp01(shot.t) * dur; playing = shot.playing;
   } else {
     dur = targetDuration();
     t = dur && !$("tpScrub").disabled ? (Number($("tpScrub").value) / 1000) * dur : 0;
@@ -3843,8 +3843,6 @@ $("tlTarget").onchange = (e) => {
   renderShotStrip();                                // the chips follow the selection now
   if (motionRec || bakeState.running) return;       // mid-take or mid-render, stay put
   if (takePreview) { takePreview = null; updateTakeUi(); }
-  if (shot.playing) stopShot();
-  if (tlTarget === "shot") { if (shot.points.length) goToWaypoint(0); return; }
   if (tlTarget === "all") { setStatus(`${takes.length} takes selected. Render writes one file each.`); return; }
   const pose = targetPose(0);
   if (pose) { cine.mode = "free"; applyPose(pose); setStatus(`Loaded "${targetName()}", at its first frame.`); }
@@ -3859,7 +3857,6 @@ $("tpRec").onclick = () => {
   startMotionRec(name.trim() || suggested);
 };
 $("tpHome").onclick = () => {
-  if (tlTarget === "shot") { if (shot.points.length) goToWaypoint(0); return; }
   const pose = targetPose(0);
   if (!pose) return;
   if (takePreview) takePreview.t0 = performance.now();
@@ -3871,14 +3868,19 @@ $("tpPlay").onclick = () => {
   if (ed) { previewEdit(ed); return; }
   const take = currentTake();
   if (take) { previewTake(take); return; }
-  if (tlTarget === "shot") shot.playing ? stopShot() : playShot(false);
 };
 
 function updatePreview() {
   if (!takePreview) return;
-  const time = (performance.now() - takePreview.t0) / 1000;
+  const dur = previewDur();
+  let time = (performance.now() - takePreview.t0) / 1000;
+  const loops = !takePreview.edit && takePreview.take && fxOf(takePreview.take).loop;
+  if (loops && dur > 0 && time >= dur) {
+    takePreview.t0 += Math.floor(time / dur) * dur * 1000;
+    time = (performance.now() - takePreview.t0) / 1000;
+  }
   applyPose(previewPose(time));
-  if (time >= previewDur()) { takePreview = null; updateTakeUi(); renderTimeline(); setStatus("Preview finished."); }
+  if (!loops && time >= dur) { takePreview = null; updateTakeUi(); renderTimeline(); setStatus("Preview finished."); }
 }
 
 // ---------------------------------------------------------------------------
@@ -4261,9 +4263,7 @@ function updateEstimate() {
   const j = estimateJob();
   $("bakeBtn").textContent = j.frames ? `Render ${targetName()}` : "Render";
   if (!j.frames) {
-    el.textContent = tlTarget === "shot" ? "save the waypoints as a take to render them"
-      : currentEdit() ? "this edit is empty"
-      : "select a take or an edit";
+    el.textContent = currentEdit() ? "this edit is empty" : "select a take or an edit";
     el.className = "";
     return;
   }
@@ -4697,7 +4697,7 @@ renderer.setAnimationLoop((t) => {
   } else {
     updateDesktopControls(dt);
     updateOrbit(dt);
-    updateShot(dt);
+  
     applyCam(dt);
     updatePreview();          // a take preview overrides the eased camera
     sampleMotion();           // and whatever ends up on screen is what gets recorded
@@ -4735,7 +4735,7 @@ renderer.setAnimationLoop((t) => {
 window.splatwalk = {
   state, scene, rig, camera, renderer, spark, xr, THREE, APP_VERSION,
   cam, cine, orbit, shot,
-  applyCam, updateOrbit, updateShot, addWaypoint, buildShotCurve, playShot, stopShot,
+  applyCam, updateOrbit, addWaypoint, buildShotCurve,
   setOrbitTargetFromView, setOrbitTarget, syncCamFromRig, pickPoint, panBy, orbitMarker, updateOrbitMarker,
 };
 </script>

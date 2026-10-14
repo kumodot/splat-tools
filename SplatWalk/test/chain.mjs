@@ -516,6 +516,53 @@ console.log("\n13e. edits: blocks of takes on one timeline");
   sources.length = 0; takes.length = 0; edits.length = 0;
 }
 
+console.log("\n13f. loop closes the path");
+{
+  // A quarter circle, so the ends are nowhere near each other and a closure
+  // is unmistakable.
+  const fps = 60, s = [];
+  for (let i = 0; i <= 120; i++) {
+    const a = (i / 120) * (Math.PI / 2);
+    s.push({ t: round4(i / fps), p: [round4(Math.cos(a) * 5), 1.6, round4(Math.sin(a) * 5)],
+             yaw: round4(a), pitch: 0, fov: 60 });
+  }
+  setSource(s);
+  const open = clip({ trimAuto: false });
+  const shut = clip({ trimAuto: false, loop: true });
+  const dOpen = takeDuration(open), dShut = takeDuration(shut);
+
+  ok("an open take ends where it ended",
+     dist(sampleTake(open, dOpen).pos, s[s.length - 1].p) < 1e-6);
+  ok("a loop ends back at the start",
+     dist(sampleTake(shut, dShut).pos, s[0].p) < 1e-6,
+     JSON.stringify(sampleTake(shut, dShut).pos));
+  ok("and it got there in every channel",
+     Math.abs(sampleTake(shut, dShut).yaw - sampleTake(shut, 0).yaw) < 1e-6);
+  // The return leg is a straight chord across a quarter circle, so it is a
+  // little shorter than the arc and should take a little less time than it.
+  const back = dShut - dOpen;
+  ok("the return leg takes the time it deserves", back > dOpen * 0.7 && back < dOpen, back.toFixed(3));
+
+  // The frames a render would write: the last one must not be the first one
+  // again, or a cycle stutters on one duplicated frame.
+  const n = Math.round(dShut * 24);
+  const last = sampleTake(shut, (n - 1) / 24);
+  ok("the last rendered frame is not a duplicate of the first",
+     dist(last.pos, sampleTake(shut, 0).pos) > 1e-3);
+  ok("but it is nearly home", dist(last.pos, sampleTake(shut, 0).pos) < 0.6,
+     dist(last.pos, sampleTake(shut, 0).pos).toFixed(3));
+
+  ok("loop composes with the rest", (() => {
+    const c = clip({ trimAuto: false, loop: true, detail: 0.5, timing: "linear", speed: 1.5 });
+    const d = takeDuration(c);
+    for (let i = 0; i <= 30; i++) {
+      const p = sampleTake(c, (i / 30) * d);
+      if (!p || [p.pos[0], p.pos[1], p.pos[2], p.yaw].some(v => !isFinite(v))) return false;
+    }
+    return dist(sampleTake(c, d).pos, sampleTake(c, 0).pos) < 1e-6;
+  })());
+}
+
 console.log("\n14. nothing produces NaN, anywhere");
 {
   flight({ noise: 0.03 });
