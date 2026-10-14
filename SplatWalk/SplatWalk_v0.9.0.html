@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.8.1</title>
+<title>SplatWalk v0.9.0</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -296,6 +296,8 @@
     background: var(--sel); }
   #props .takewrap { border: 0; background: none; padding: 0; margin: 0; }
   #props .takefx { border: 0; padding: 0; }
+  .genfx { display: flex; flex-direction: column; gap: 5px; padding: 0 0 7px;
+    margin-bottom: 7px; border-bottom: 1px solid var(--line); }
   /* Folding a whole section is the other way to win back height. The arrow is
      the same triangle the drawer tabs draw, as an inline SVG rather than a
      font glyph, so every arrow in the app has one shape and one weight. */
@@ -498,7 +500,7 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.8.1</span>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.9.0</span>
   <span class="sep"></span>
   <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
   <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
@@ -624,7 +626,7 @@
       <span class="hint" id="orbitSpeedVal" style="flex:0 0 60px"></span>
     </div>
     <div class="row" id="orbitTakeRow">
-      <label style="flex:0 0 auto" title="The angle the take begins at. The live orbit keeps spinning; the take does not care, it starts here.">Start</label>
+      <label style="flex:0 0 auto" title="The angle around the target that the take begins at, and what the sweep is counted from. The live orbit keeps spinning; the take does not care, it starts here.">Start angle</label>
       <input type="number" id="orbitStart" value="0" min="-360" max="720" step="15">
       <button class="small" id="orbitStartHere" title="Use the angle you are looking from right now">Use view</button>
     </div>
@@ -789,7 +791,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.8.1</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.9.0</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -817,8 +819,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.8.1";
-const APP_BUILT = "2026-10-14 05:25 UTC";
+const APP_VERSION = "0.9.0";
+const APP_BUILT = "2026-10-14 05:32 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -827,7 +829,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.8.1, so a reload could not tell you whether you
+// changes all shipped as v0.9.0, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1325,7 +1327,7 @@ function projectToJson() {
     shot: { points: shot.points, duration: shot.duration, loop: shot.loop },
     sources: sources.map(s => ({ id: s.id, name: s.name, samples: s.samples })),
     takes: takes.map(t => ({ id: t.id, srcId: t.srcId, name: t.name, enabled: t.enabled,
-                             color: t.color, fx: t.fx })),
+                             color: t.color, gen: t.gen, fx: t.fx })),
     edits: edits.map(e => ({ id: e.id, name: e.name,
       blocks: e.blocks.map(b => ({ id: b.id, takeId: b.takeId, at: b.at, tIn: b.tIn, tOut: b.tOut })) })),
     items: state.items.map(i => ({
@@ -1381,10 +1383,10 @@ async function loadProject(name) {
       if (sources.some(s => s.id === t.srcId)) {
         takes.push({ id: t.id || uuid(), srcId: t.srcId, name: t.name || "take",
                      enabled: t.enabled !== false, color: t.color || nextColor(),
-                     fx: { ...newFx(), ...(t.fx || {}) } });
+                     gen: t.gen || null, fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.8.1 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.9.0 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1925,9 +1927,11 @@ function updateCineUi() {
   // happens to be" is not something you can aim with while it is spinning.
   const deg = orbitSweepDeg(), rate = Math.abs(sp);
   const a0 = orbitStartDeg(), a1 = a0 + (sp < 0 ? -deg : deg);
+  // The start wraps into 0..360 because it is a place; the end does not,
+  // because a full turn ending at "0" reads as a take that goes nowhere.
   const wrap = (d) => ((d % 360) + 360) % 360;
   $("orbitTakeHint").textContent = cine.mode !== "orbit" ? "orbit mode only"
-    : `${Math.round(wrap(a0))}° → ${Math.round(wrap(a1))}° · `
+    : `${Math.round(wrap(a0))}° → ${Math.round(wrap(a0) + (a1 - a0))}° · `
       + (rate > 0.004 ? `${(deg * Math.PI / 180 / rate).toFixed(1)}s` : "12.0s at rest");
 }
 
@@ -2870,6 +2874,13 @@ function hexRgba(hex, a) {
 }              // how near a stored time must be to match a point
 const srcOf = (clip) => sources.find(s => s.id === clip.srcId);
 function fxOf(clip) { if (!clip.fx) clip.fx = newFx(); return clip.fx; }
+// An end angle is a signed distance from the start, and which way round it
+// goes is the sign. Zero would be a take with no move in it.
+function setSweep(g, signed) {
+  const s = clampTo(Math.abs(signed), 5, 1440);
+  g.cw = signed >= 0;
+  g.sweep = s;
+}
 
 // Any edit to a filter bumps this. It is the whole of the cache invalidation,
 // because the recording underneath can never change.
@@ -3494,9 +3505,30 @@ const pctTxt = (v) => v > 0.004 ? `${Math.round(v * 100)}%` : "off";
 const dotsTxt = (pr) => `${pr.pts.length} pts` + (pr.ghosts.length ? ` &minus;${pr.ghosts.length}` : "");
 const speedTxt = (f, pr) => `${f.speed.toFixed(2)}x · ${pr.outDur.toFixed(1)}s`;
 
+// Shown above the filters, because these are what the move IS and the
+// filters are what is done to it afterwards.
+function genCard(clip) {
+  const g = clip.gen;
+  if (!g || g.kind !== "orbit") return "";
+  return `<div class="genfx">
+    <div class="fxrow">
+      <label title="The angle around the target the orbit begins at. Editing either number rebuilds the move.">Start angle</label>
+      <input type="number" class="fxnum" data-tact="gstart" step="15" value="${round4(g.start)}">
+      <span class="fxto">to</span>
+      <input type="number" class="fxnum" data-tact="gend" step="15" value="${round4(g.start + (g.cw ? g.sweep : -g.sweep))}">
+      <span class="fxto" data-genval="dir">&deg; ${g.cw ? "cw" : "ccw"}</span>
+    </div>
+    <div class="fxrow">
+      <label title="How long the sweep takes. Speed and Ease below still apply on top of it.">Seconds</label>
+      <input type="number" class="fxnum" data-tact="gdur" step="0.5" min="0.5" value="${round4(g.dur)}">
+      <span class="fxto" style="flex:1" data-genval="sweep">${Math.round(Math.abs(g.sweep))}&deg; sweep</span>
+    </div>
+  </div>`;
+}
+
 function takeCard(clip) {
   const pr = procOf(clip), f = fxOf(clip);
-  return `<div class="takefx">
+  return genCard(clip) + `<div class="takefx">
     <div class="fxrow">
       <label title="Cut the still head and tail off the recording. The recording itself keeps its full length.">Trim</label>
       <input type="number" class="fxnum" data-tact="tin" step="0.1" min="0" value="${pr.tIn.toFixed(2)}">
@@ -3561,6 +3593,24 @@ function updateTakeUi() {
   updateEstimate();
   updateTlTarget();
   renderProps();
+}
+
+// Rebuilding the pane while you are typing in it would take the field away
+// mid-number, so the generator's readouts are patched in place too, and the
+// fields you are not in are refreshed from the regenerated move.
+function patchGenRow(row, clip) {
+  const g = clip.gen;
+  if (!g || !row) return;
+  const set = (k, html) => { const e = row.querySelector(`[data-genval="${k}"]`); if (e) e.innerHTML = html; };
+  set("sweep", `${Math.round(Math.abs(g.sweep))}&deg; sweep`);
+  set("dir", `&deg; ${g.cw ? "cw" : "ccw"}`);
+  const pr = procOf(clip);
+  for (const [sel, val] of [['[data-tact="tin"]', pr.tIn.toFixed(2)], ['[data-tact="tout"]', pr.tOut.toFixed(2)]]) {
+    const el = row.querySelector(sel);
+    if (el && document.activeElement !== el) el.value = val;
+  }
+  const raw = row.querySelector('[data-fxval="trim"]');
+  if (raw) raw.textContent = `/ ${pr.rawDur.toFixed(1)}s`;
 }
 
 // Dragging a slider must not rebuild the list under the cursor, so the readouts
@@ -3630,6 +3680,17 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("input",
   }
   const v = parseFloat(e.target.value);
   if (!isFinite(v)) return;
+  // The generator's own numbers rebuild the move itself, not a filter on it.
+  if (act === "gstart" || act === "gend" || act === "gdur") {
+    const g = clip.gen;
+    if (!g) return;
+    if (act === "gstart") { const end = g.start + (g.cw ? g.sweep : -g.sweep); g.start = v; setSweep(g, end - v); }
+    else if (act === "gend") setSweep(g, v - g.start);
+    else g.dur = clampTo(v, 0.5, 600);
+    regenOrbit(clip);
+    tlSig = ""; patchGenRow(row, clip); patchTakeRow(row, clip); updateTransport(); markDirty();
+    return;
+  }
   if (act === "detail") f.detail = clamp01(v);
   else if (act === "speed") f.speed = Math.pow(2, v);
   else if (act === "ease") f.ease = clamp01(v);
@@ -3762,25 +3823,21 @@ $("takeList").addEventListener("dragstart", (e) => {
 // the azimuth at the speed you set gives it some, and from there it is a take
 // like any other: filters, timing, render, a place in an edit. The three ways
 // of authoring a move now all end in the same object.
-let orbitSeq = 0;
-function orbitToTake() {
-  if (cine.mode !== "orbit") { setStatus("Press Orbit and set it up first.", true); return; }
-  const deg = clampTo(parseFloat($("orbitDeg").value) || 360, 5, 1440);
-  const sweep = deg * Math.PI / 180;
-  // Time it the way it would actually play at the speed on the slider, and
-  // fall back to a sensible length when the slider is parked at zero.
-  const rate = Math.abs(orbit.speed);
-  const dur = clampTo(rate > 0.004 ? sweep / rate : 12, 1, 600);
-  const dir = orbit.speed < 0 ? -1 : 1;
-  const n = Math.max(24, Math.min(720, Math.round(deg / 2)));
-  const fov = camera.fov, r = orbit.radius, e = orbit.elevation, a0 = orbit.azimuth;
-  const samples = [];
+// An orbit take keeps the numbers it was made from, so the angles stay
+// editable in Properties instead of being baked into a list of poses the
+// moment you press the button. Everything else about it is an ordinary take.
+function orbitSamples(g) {
+  const sweep = g.sweep * Math.PI / 180, dir = g.cw ? 1 : -1;
+  const n = Math.max(24, Math.min(720, Math.round(g.sweep / 2)));
+  const target = new THREE.Vector3().fromArray(g.target);
+  const out = [];
   let prevYaw = null;
   for (let i = 0; i <= n; i++) {
-    const u = i / n, a = a0 + dir * sweep * u;
-    const eye = new THREE.Vector3(Math.sin(a) * Math.cos(e) * r, Math.sin(e) * r, Math.cos(a) * Math.cos(e) * r)
-      .add(orbit.target);
-    const look = orbit.target.clone().sub(eye);
+    const u = i / n, a = g.start * Math.PI / 180 + dir * sweep * u;
+    const eye = new THREE.Vector3(Math.sin(a) * Math.cos(g.elev) * g.radius,
+                                  Math.sin(g.elev) * g.radius,
+                                  Math.cos(a) * Math.cos(g.elev) * g.radius).add(target);
+    const look = target.clone().sub(eye);
     let yaw = Math.atan2(-look.x, -look.z);
     // Unwrapped as we go, so a full turn is one continuous sweep instead of
     // four jumps across the seam.
@@ -3789,29 +3846,63 @@ function orbitToTake() {
       while (prevYaw - yaw > Math.PI) yaw += 2 * Math.PI;
     }
     prevYaw = yaw;
-    samples.push({
-      t: round4(u * dur),
+    out.push({
+      t: round4(u * g.dur),
       p: [round4(eye.x), round4(eye.y - EYE_HEIGHT), round4(eye.z)],
       yaw: round4(yaw),
       pitch: round4(Math.asin(THREE.MathUtils.clamp(look.y / (look.length() || 1), -1, 1))),
-      fov,
+      fov: g.fov,
     });
   }
+  return out;
+}
+
+// A NEW recording rather than a rewrite of the old one, because undo copies
+// the source array by reference on the promise that a recording never
+// changes once it exists. Keeping that promise is cheaper than breaking it.
+function regenOrbit(clip) {
+  if (!clip.gen || clip.gen.kind !== "orbit") return;
+  const src = { id: uuid(), name: clip.name, samples: orbitSamples(clip.gen) };
+  sources.push(src);
+  clip.srcId = src.id;
+  pruneSources();
+  fxTouched(clip);
+}
+
+let orbitSeq = 0;
+function orbitToTake() {
+  if (cine.mode !== "orbit") { setStatus("Press Orbit and set it up first.", true); return; }
+  const deg = orbitSweepDeg();
+  // Time it the way it would actually play at the speed on the slider, and
+  // fall back to a sensible length when the slider is parked at zero.
+  const rate = Math.abs(orbit.speed);
+  const gen = {
+    kind: "orbit",
+    start: orbitStartDeg(),
+    sweep: deg,
+    cw: orbit.speed >= 0,
+    radius: orbit.radius,
+    elev: orbit.elevation,
+    target: orbit.target.toArray(),
+    fov: camera.fov,
+    dur: clampTo(rate > 0.004 ? (deg * Math.PI / 180) / rate : 12, 1, 600),
+  };
   undoPoint("saving the orbit as a take");
   const name = `OrbitTake_${String(++orbitSeq).padStart(2, "0")} (${Math.round(deg)}\u00b0)`;
-  const src = { id: uuid(), name, samples };
+  const src = { id: uuid(), name, samples: orbitSamples(gen) };
   sources.push(src);
-  const clip = { id: uuid(), srcId: src.id, name, enabled: true, color: nextColor(),
+  const clip = { id: uuid(), srcId: src.id, name, enabled: true, color: nextColor(), gen,
                  // An orbit is already evenly paced and already smooth, so it
                  // wants neither the auto-trim nor an ease by default.
                  fx: { ...newFx(), trimAuto: false, timing: "linear", loop: deg >= 359.9 } };
   takes.push(clip);
   tlTarget = "take:" + clip.id;
+  activeTakeId = clip.id;
   propsFocus = "clip";
   markDirty();
   updateTakeUi();
   renderShotStrip();
-  setStatus(`"${name}" saved, ${dur.toFixed(1)}s at the current orbit speed.`);
+  setStatus(`"${name}" saved, ${gen.dur.toFixed(1)}s at the current orbit speed. Its angles stay editable in Properties.`);
 }
 $("orbitToTake").onclick = orbitToTake;
 
