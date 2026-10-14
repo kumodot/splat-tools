@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SplatWalk v0.6.1</title>
+<title>SplatWalk v0.6.2</title>
 <style>
   :root {
     --bg: #0f1115; --panel: rgba(18, 20, 26, 0.92); --line: #2a2f3a; --text: #e6e8ee;
@@ -65,14 +65,22 @@
 
   #right { top: var(--hdr); right: 0; bottom: var(--statusH); width: var(--rightPanelW);
     border-width: 0 0 0 1px; display: flex; flex-direction: column; }
-  #props  { flex: var(--propsFlex); overflow-y: auto; min-height: 0; }
   #layers { flex: var(--layersFlex); overflow-y: auto; min-height: 0; }
+  #props  { flex: var(--propsFlex); overflow-y: auto; min-height: 0; }
 
   #timeline { left: 0; right: var(--rightW); height: var(--tlPanelH);
     bottom: calc(var(--statusH) + var(--transportH)); border-width: 1px 1px 0 0;
     display: flex; flex-direction: column; }
   #tlBody { flex: 1; min-height: 0; overflow: auto; padding: 9px 10px; font-size: 12px; }
   #tlEmpty { color: var(--muted); text-align: center; padding: 20px 10px; }
+  #tlScale { position: relative; }
+  /* A ruler, because a strip with holes in it is only readable against time. */
+  #tlRuler { position: relative; height: 15px; margin-bottom: 3px;
+    border-bottom: 1px solid var(--line); }
+  #tlRuler .tk { position: absolute; bottom: 0; width: 1px; height: 5px; background: #2b3140; }
+  #tlRuler .tk.big { height: 9px; background: #3a4150; }
+  #tlRuler .lb { position: absolute; bottom: 1px; font-size: 9px; color: var(--muted);
+    transform: translateX(3px); font-variant-numeric: tabular-nums; pointer-events: none; }
   #tlTrack { position: relative; height: 52px; border-radius: 6px; background: #0b0d12;
     border: 1px solid var(--line); overflow: hidden; }
   #tlTrack.drop { border-color: var(--accent); }
@@ -88,11 +96,23 @@
     overflow: hidden; text-overflow: ellipsis; pointer-events: none; color: var(--text); }
   .tlblk .du { position: absolute; left: 9px; bottom: 4px; font-size: 10px; color: var(--muted);
     pointer-events: none; font-variant-numeric: tabular-nums; }
-  .tlblk .edge { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+  /* The trim handles are drawn, not just hit areas, because a seven pixel
+     invisible strip is a guessing game: you drag what you think is the edge,
+     the block moves instead, and trim looks broken. */
+  .tlblk .edge { position: absolute; top: 0; bottom: 0; width: 10px; cursor: ew-resize; }
   .tlblk .edge.l { left: 0; } .tlblk .edge.r { right: 0; }
-  .tlblk .edge:hover { background: var(--accent); opacity: 0.45; }
+  .tlblk .edge::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 3px;
+    border-radius: 2px; background: #3d4553; }
+  .tlblk .edge.l::after { left: 2px; } .tlblk .edge.r::after { right: 2px; }
+  .tlblk .edge:hover::after { background: var(--accent); }
+  .tlblk.sel .edge::after { background: #5a6475; }
+  /* The playhead crosses the ruler and the track as one line, so where it is
+     and which cut it is about to reach read as the same fact. */
   #tlHead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent);
-    pointer-events: none; display: none; }
+    pointer-events: none; display: none; z-index: 3; }
+  #tlHead::before { content: ""; position: absolute; top: 0; left: -4px;
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 6px solid var(--accent); }
   /* Block actions sit in the header beside the edit's own, because three
      verbs floating under an empty strip read as controls for nothing. */
   #tlActs { display: none; align-items: center; gap: 6px; }
@@ -368,6 +388,16 @@
   /* Takes: recorded camera motion, and the render queue that bakes it. */
   .take { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
   .take input[type=checkbox] { flex: 0 0 auto; }
+  /* Reordering is a drag on the dots, not a stack of up arrows. There is no
+     real overlap between layers, so order is only for reading. */
+  .rowgrip { flex: 0 0 7px; display: flex; align-items: center; cursor: grab;
+    opacity: 0.45; touch-action: none; }
+  .rowgrip:hover { opacity: 1; }
+  .rowgrip svg { width: 6px; height: 12px; display: block; fill: var(--muted); }
+  .rowgrip:hover svg { fill: var(--accent); }
+  .reordering { opacity: 0.55; }
+  .tkicon { width: 11px; height: 11px; display: block; fill: currentColor; }
+  .take .tbtn.clap { display: flex; align-items: center; padding: 0 4px; }
   .take .num { flex: 0 0 16px; color: var(--muted); font-size: 11px; text-align: right; }
   .take .tname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     cursor: text; padding: 2px 4px; border-radius: 4px; }
@@ -451,7 +481,7 @@
 <body>
 
 <div id="topbar" class="zone">
-  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.6.1</span>
+  <h1>SplatWalk</h1><span class="ver" id="verLabel" title="">v0.6.2</span>
   <span class="sep"></span>
   <select id="projectSelect" title="Every project you have saved in this browser. Pick one to load it."></select>
   <button class="small" id="saveBtn" title="Save this project now (it also autosaves)">Save</button>
@@ -463,6 +493,8 @@
     <label title="Show the right column (1)"><input type="checkbox" id="tgRight" checked> Panel</label>
     <label title="Show the keyboard shortcuts card (H)"><input type="checkbox" id="tgHelp" checked> Shortcuts</label>
   </span>
+  <span class="sep"></span>
+  <button class="small" id="shotRecord" title="Record the live view to a webm file while a shot or take plays (R). For a finished file, Render in the Takes panel is the better route.">Capture to video</button>
   <span class="sep"></span>
   <button class="small" id="cleanBtn" title="Hide every panel (0)">Full screen</button>
   <button class="small" id="aboutBtn">About</button>
@@ -482,12 +514,8 @@
 </div>
 
 <div id="right" class="zone">
-  <div class="zonehead"><span>Properties</span></div>
-  <div id="props"></div><!-- filled by renderProps -->
-
-  <div id="gripProps" class="grip" title="Drag to resize. Double-click to reset."></div>
-
-  <div class="zonehead"><span>Splats</span></div>
+  <!-- Lists on top, properties underneath: pick a thing, read it below. -->
+  <div class="zonehead"><span>Scene</span></div>
   <div id="layers">
   <section>
     <div class="row">
@@ -501,50 +529,11 @@
     </div>
   </section>
   <div id="items"><div class="empty">No splats yet.<br>Add PLY / SPZ files or drop them here.</div></div>
-  <section>
-    <h2>Cine</h2>
-    <div class="row">
-      <label style="flex:0 0 auto" title="Gimbal damping. What you see is what gets recorded into a take.">Gimbal</label>
-      <input type="range" id="cineSmooth" min="0" max="2" step="0.05" value="0.15" style="flex:1"
-             title="Damps the camera the way a gimbal head does. Rotation is damped harder than movement, because a flick of the wrist is a step while W is a ramp.">
-      <span class="hint" id="cineSmoothVal" style="flex:0 0 46px">off</span>
-    </div>
-    <div class="row">
-      <label style="flex:0 0 auto">Lens</label>
-      <input type="range" id="cineFov" min="20" max="100" step="1" value="70" style="flex:1">
-      <span class="hint" id="cineFovVal" style="flex:0 0 46px">70&deg;</span>
-    </div>
-    <div class="row">
-      <button class="small" id="cineFree">Free fly</button>
-      <button class="small" id="cineOrbit">Orbit</button>
-
-    </div>
-    <div class="row" id="orbitRow">
-      <label style="flex:0 0 auto">Speed</label>
-      <input type="range" id="orbitSpeed" min="-0.6" max="0.6" step="0.01" value="0.12" style="flex:1">
-      <span class="hint" id="orbitSpeedVal" style="flex:0 0 60px"></span>
-    </div>
-    <div class="row">
-      <button class="small" id="shotAdd" title="K">+ Waypoint</button>
-      <span class="hint" id="shotCount" style="flex:1">no shot yet</span>
-      <button class="small" id="wpToTake" title="Turn these waypoints into a take, with all the same filters. They stay here afterwards.">Save as take</button>
-      <button class="small warn" id="shotClear">Clear</button>
-    </div>
-    <div class="row">
-      <label style="flex:0 0 auto">Seconds</label>
-      <input type="number" id="shotDuration" value="12" min="1" max="600" step="1">
-      <label><input type="checkbox" id="shotLoop"> loop</label>
-    </div>
-    <div class="row tight">
-      <button class="small" id="shotRecord" title="Capture the live view to a webm while the shot plays (R). The render queue below is the better route.">Record webm</button>
-      <span class="hint" id="recHint"></span>
-    </div>
-  </section>
 
   <section>
     <h2>Takes</h2>
     <div class="row">
-      <button class="small" id="motionRec" title="Record the camera motion as you fly (T)"><span id="motionDot"></span>Record motion</button>
+      <button class="small" id="motionRec" title="Record the camera motion as you fly (T)"><span id="motionDot"></span>Motion record</button>
       <span class="hint" id="motionHint" style="flex:1"></span>
     </div>
     <div id="takeList"></div>
@@ -580,6 +569,48 @@
   </section>
 
   <section>
+    <h2>Camera</h2>
+    <div class="row">
+      <label style="flex:0 0 auto" title="Gimbal damping. What you see is what gets recorded into a take.">Gimbal</label>
+      <input type="range" id="cineSmooth" min="0" max="2" step="0.05" value="0.15" style="flex:1"
+             title="Damps the camera the way a gimbal head does. Rotation is damped harder than movement, because a flick of the wrist is a step while W is a ramp.">
+      <span class="hint" id="cineSmoothVal" style="flex:0 0 46px">off</span>
+    </div>
+    <div class="row">
+      <label style="flex:0 0 auto">Lens</label>
+      <input type="range" id="cineFov" min="20" max="100" step="1" value="70" style="flex:1">
+      <span class="hint" id="cineFovVal" style="flex:0 0 46px">70&deg;</span>
+    </div>
+    <div class="row tight">
+      <button class="small" id="cineFree">Free fly</button>
+      <button class="small" id="cineOrbit">Orbit</button>
+    </div>
+    <div class="row" id="orbitRow">
+      <label style="flex:0 0 auto">Orbit speed</label>
+      <input type="range" id="orbitSpeed" min="-0.6" max="0.6" step="0.01" value="0.12" style="flex:1">
+      <span class="hint" id="orbitSpeedVal" style="flex:0 0 60px"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Waypoints</h2>
+    <div class="row">
+      <button class="small" id="shotAdd" title="K">+ Waypoint</button>
+      <span class="hint" id="shotCount" style="flex:1">no shot yet</span>
+      <button class="small warn" id="shotClear">Clear</button>
+    </div>
+    <div class="row">
+      <label style="flex:0 0 auto">Seconds</label>
+      <input type="number" id="shotDuration" value="12" min="1" max="600" step="1">
+      <label><input type="checkbox" id="shotLoop"> loop</label>
+    </div>
+    <div class="row tight">
+      <button class="small" id="wpToTake" title="Turn these waypoints into a take, with all the same filters. They stay here afterwards.">Save as take</button>
+      <span class="hint" id="recHint"></span>
+    </div>
+  </section>
+
+  <section>
     <h2>Settings</h2>
     <div class="row">
       <label><input type="checkbox" id="setLod" checked> Build LOD on load (recommended for Quest)</label>
@@ -605,6 +636,11 @@
     </div>
   </section>
   </div><!-- /#layers -->
+
+  <div id="gripProps" class="grip" title="Drag to resize. Double-click to reset."></div>
+
+  <div class="zonehead"><span>Properties</span></div>
+  <div id="props"></div><!-- filled by renderProps -->
 </div><!-- /#right -->
 
 <div id="timeline" class="zone">
@@ -625,12 +661,16 @@
   </div>
   <div id="tlBody">
     <div id="tlEmpty"></div>
-    <div id="tlTrack"><div id="tlBlocks"></div><div id="tlHead"></div></div>
+    <div id="tlScale">
+      <div id="tlRuler"></div>
+      <div id="tlTrack"><div id="tlBlocks"></div></div>
+      <div id="tlHead"></div>
+    </div>
   </div>
 </div>
 
 <div id="transport" class="zone">
-  <button class="small rec" id="tpRec" title="Record a new move in real time (T)"><span id="tpRecDot"></span>Record</button>
+  <button class="small rec" id="tpRec" title="Record a new move in real time (T)"><span id="tpRecDot"></span>Motion record</button>
   <button class="small" id="tpHome" title="Back to the start" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2 H3.6 V10 H2 Z M10 2 V10 L4.6 6 Z"/></svg></button>
   <button class="small" id="tpPlay" title="Play the current take or shot" disabled><svg class="tpicon" viewBox="0 0 12 12" aria-hidden="true"><path id="tpIcon" d="M3 2 L10 6 L3 10 Z"/></svg></button>
   <select id="tlTarget" title="What the transport and the timeline are driving"></select>
@@ -714,7 +754,7 @@
 
 <div id="modal">
   <div class="box">
-    <h3>SplatWalk <span class="ver" id="verLabel2">v0.6.1</span></h3>
+    <h3>SplatWalk <span class="ver" id="verLabel2">v0.6.2</span></h3>
     <p>Walk inside Gaussian Splat scenes on Quest 3 (WebXR) or desktop. Load PLY / SPZ / SPLAT files, place several in one space, and save projects in this browser.</p>
     <p>Marcelo Souza / Kumodot.art - 2026 // @Msouza3d</p>
     <p><a href="https://ko-fi.com/msouza3d" target="_blank" rel="noopener">Support Marcelo Souza on Ko-fi</a></p>
@@ -742,8 +782,8 @@ import { SparkRenderer, SplatMesh, SparkXr } from "@sparkjsdev/spark";
 // App constants
 // ---------------------------------------------------------------------------
 const APP_NAME = "SplatWalk";
-const APP_VERSION = "0.6.1";
-const APP_BUILT = "2026-10-14 03:52 UTC";
+const APP_VERSION = "0.6.2";
+const APP_BUILT = "2026-10-14 04:14 UTC";
 const DB_NAME = "splatwalk";
 const LS_CURRENT = "splatwalk.currentProject";
 const LS_SETTINGS = "splatwalk.settings";
@@ -752,7 +792,7 @@ const SNAP_TURN_DEG = 30;
 
 // The build stamp is the backstop for the version number. A version only helps
 // if it moves every time the file does, and it did not: several rounds of
-// changes all shipped as v0.6.1, so a reload could not tell you whether you
+// changes all shipped as v0.6.2, so a reload could not tell you whether you
 // were looking at the newest code. tools/release.py stamps this, and it is
 // written into the one place a human reads before reporting a bug.
 document.getElementById("verLabel").textContent = "v" + APP_VERSION;
@@ -1251,7 +1291,7 @@ function projectToJson() {
     sources: sources.map(s => ({ id: s.id, name: s.name, samples: s.samples })),
     takes: takes.map(t => ({ id: t.id, srcId: t.srcId, name: t.name, enabled: t.enabled, fx: t.fx })),
     edits: edits.map(e => ({ id: e.id, name: e.name,
-      blocks: e.blocks.map(b => ({ id: b.id, takeId: b.takeId, tIn: b.tIn, tOut: b.tOut })) })),
+      blocks: e.blocks.map(b => ({ id: b.id, takeId: b.takeId, at: b.at, tIn: b.tIn, tOut: b.tOut })) })),
     items: state.items.map(i => ({
       id: i.id, name: i.name, blobId: i.blobId, url: i.url, fileName: i.fileName,
       position: i.position, rotation: i.rotation, scale: i.scale, visible: i.visible,
@@ -1307,7 +1347,7 @@ async function loadProject(name) {
                      enabled: t.enabled !== false, fx: { ...newFx(), ...(t.fx || {}) } });
       }
     } else if (Array.isArray(t.samples) && t.samples.length) {
-      // Saved by v0.6.1 or earlier, when a take owned its own samples. Auto-trim
+      // Saved by v0.6.2 or earlier, when a take owned its own samples. Auto-trim
       // is left off for these, so a project reopens rendering exactly as before.
       const src = { id: uuid(), name: t.name || "take", samples: t.samples };
       sources.push(src);
@@ -1321,9 +1361,18 @@ async function loadProject(name) {
     // A block whose take no longer exists is dropped rather than carried as a
     // hole, because editLayout would skip it for ever anyway.
     const blocks = e.blocks.filter(b => b && takes.some(t => t.id === b.takeId))
-      .map(b => ({ id: b.id || uuid(), takeId: b.takeId,
+      .map(b => ({ id: b.id || uuid(), takeId: b.takeId, at: b.at == null ? null : +b.at,
                    tIn: b.tIn == null ? null : +b.tIn, tOut: b.tOut == null ? null : +b.tOut }));
-    edits.push({ id: e.id || uuid(), name: e.name || `Edit ${edits.length + 1}`, blocks });
+    const ed = { id: e.id || uuid(), name: e.name || `Edit ${edits.length + 1}`, blocks };
+    // Saved before blocks carried a time: lay them out butted, which is where
+    // they were, so reopening a project changes nothing.
+    let cursor = 0;
+    for (const b of blocks) {
+      const r = blockRange(b);
+      if (b.at == null) b.at = cursor;
+      cursor = Math.max(cursor, b.at + (r ? r.dur : 0));
+    }
+    edits.push(ed);
   }
   editSeq = edits.length;
   takeSeq = takes.length;
@@ -1461,6 +1510,7 @@ function renderItems() {
   itemsEl.innerHTML = bar + state.items.map(item => `
     <div class="item folded ${item.id === state.selectedId ? "selected" : ""}" data-id="${item.id}">
       <div class="title" data-act="select">
+        <span class="rowgrip" title="Drag to reorder"><svg viewBox="0 0 6 12" aria-hidden="true"><circle cx="1.5" cy="3" r="0.9"/><circle cx="4.5" cy="3" r="0.9"/><circle cx="1.5" cy="6" r="0.9"/><circle cx="4.5" cy="6" r="0.9"/><circle cx="1.5" cy="9" r="0.9"/><circle cx="4.5" cy="9" r="0.9"/></svg></span>
         <input type="checkbox" data-act="visible" ${item.visible ? "checked" : ""} title="Visible">
         <span class="name" title="${esc(item.fileName || item.url || "")}">${esc(item.name)}</span>
         <span class="status ${item.status}">${statusText(item)}</span>
@@ -1819,8 +1869,9 @@ function updateCineUi() {
     : "no shot yet";
   updateTlTarget();
   const rec = recorder && recorder.state === "recording";
-  $("shotRecord").textContent = rec ? "Stop rec" : "Record";
-  $("recHint").textContent = rec ? "recording" : "";
+  $("shotRecord").textContent = rec ? "Stop capture" : "Capture to video";
+  $("shotRecord").classList.toggle("warn", rec);
+  $("recHint").textContent = rec ? "capturing the live view" : "";
   const s = parseFloat($("cineSmooth").value);
   $("cineSmoothVal").textContent = s < 0.01 ? "1:1" : s.toFixed(2) + "s";
   $("cineFovVal").textContent = Math.round(camera.fov) + "\u00B0";
@@ -3215,8 +3266,11 @@ function pruneSources() {
 // IS the take. A block's in/out says which part of the take plays HERE, and
 // touches neither the take nor the other blocks of it.
 //
-// Blocks are always butted together. A hole would need its own behaviour
-// defined (hold the last frame? cut to black?) and nobody asked for one.
+// A block sits at a time on the edit, and holes between them are allowed,
+// because a track where everything is shoved together cannot show a trim: cut
+// a second off the only block and it still fills the strip. In a hole the
+// playhead holds the last frame it was over, the way a cut list behaves when
+// there is nothing under it.
 // ---------------------------------------------------------------------------
 const edits = [];
 let editSeq = 0;
@@ -3240,30 +3294,35 @@ function blockRange(b) {
 // answer, so they all read it from here.
 function editLayout(ed) {
   const out = [];
-  let t0 = 0;
   for (const b of (ed && ed.blocks) || []) {
     const r = blockRange(b);
     if (!r) continue;
-    out.push({ b, take: r.take, in: r.in, out: r.out, dur: r.dur, t0 });
-    t0 += r.dur;
+    out.push({ b, take: r.take, in: r.in, out: r.out, dur: r.dur, t0: Math.max(0, b.at || 0) });
   }
+  out.sort((p, q) => p.t0 - q.t0 || (p.b.id < q.b.id ? -1 : 1));
   return out;
 }
 
 function editDuration(ed) {
-  const l = editLayout(ed);
-  return l.length ? l[l.length - 1].t0 + l[l.length - 1].dur : 0;
+  let end = 0;
+  for (const s of editLayout(ed)) end = Math.max(end, s.t0 + s.dur);
+  return end;
 }
 
 function sampleEdit(ed, time) {
   const l = editLayout(ed);
   if (!l.length) return null;
-  const last = l[l.length - 1];
-  if (!(time < last.t0 + last.dur)) return sampleTake(last.take, last.out);
-  let k = 0;
-  while (k < l.length - 1 && time >= l[k].t0 + l[k].dur) k++;
-  const s = l[k];
-  return sampleTake(s.take, s.in + Math.max(0, time - s.t0));
+  let hold = null;
+  for (const s of l) {
+    // Later blocks win where two overlap, which is what dropping one on top
+    // of another looks like it should do.
+    if (time >= s.t0 && time < s.t0 + s.dur) hold = { s, live: true };
+    else if (s.t0 + s.dur <= time && (!hold || !hold.live)) hold = { s, live: false };
+  }
+  if (hold && hold.live) return sampleTake(hold.s.take, hold.s.in + (time - hold.s.t0));
+  // A hole, or past the end: hold the last frame that was under the playhead.
+  // Before the first block there is nothing behind it, so it stands in.
+  return hold ? sampleTake(hold.s.take, hold.s.out) : sampleTake(l[0].take, l[0].in);
 }
 
 function newEdit(name) {
@@ -3272,10 +3331,12 @@ function newEdit(name) {
   return ed;
 }
 
+// `at` is a time on the edit, not an index. Left out, the block lands after
+// everything else, which is what dropping one on the end means.
 function addBlock(ed, take, at) {
-  const b = { id: uuid(), takeId: take.id, tIn: null, tOut: null };
-  if (at == null || at < 0 || at > ed.blocks.length) ed.blocks.push(b);
-  else ed.blocks.splice(at, 0, b);
+  const b = { id: uuid(), takeId: take.id,
+              at: at == null ? editDuration(ed) : Math.max(0, at), tIn: null, tOut: null };
+  ed.blocks.push(b);
   return b;
 }
 
@@ -3332,14 +3393,14 @@ function updateTakeUi() {
       const sel = tlTarget === "take:" + t.id;
       return `<div class="takewrap ${sel ? "sel" : ""}" data-tid="${t.id}">
         <div class="take ${takePreview && takePreview.take === t ? "playing" : ""}">
+          <span class="rowgrip" title="Drag to reorder"><svg viewBox="0 0 6 12" aria-hidden="true"><circle cx="1.5" cy="3" r="0.9"/><circle cx="4.5" cy="3" r="0.9"/><circle cx="1.5" cy="6" r="0.9"/><circle cx="4.5" cy="6" r="0.9"/><circle cx="1.5" cy="9" r="0.9"/><circle cx="4.5" cy="9" r="0.9"/></svg></span>
           <span class="num">${i + 1}</span>
           <span class="tname" data-tact="pick" draggable="true" title="Click to load it. Drag it onto the timeline.">${esc(t.name)}</span>
           <span class="tinfo" data-tinfo>${takeDuration(t).toFixed(1)}s</span>
           <button class="tbtn" data-tact="play" title="Preview in the viewport">&#9205;</button>
           <button class="tbtn" data-tact="rename" title="Rename">&#9998;</button>
-          <button class="tbtn" data-tact="toedit" title="Add to the edit the timeline is showing">&rarr;</button>
+          <button class="tbtn clap" data-tact="toedit" title="Send this take to the edit the timeline is showing"><svg class="tkicon" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.2 4.7 H10.8 V10.2 Q10.8 10.9 10.1 10.9 H1.9 Q1.2 10.9 1.2 10.2 Z M1.2 4.7 L2.9 1.8 H4.5 L2.8 4.7 Z M4.9 4.7 L6.6 1.8 H8.2 L6.5 4.7 Z M8.6 4.7 L10.3 1.8 H10.8 V4.7 Z"/></svg></button>
           <button class="tbtn" data-tact="dup" title="Duplicate this clip">&#8862;</button>
-          <button class="tbtn" data-tact="up" title="Move up" ${i === 0 ? "disabled" : ""}>&#9650;</button>
           <button class="tbtn del" data-tact="del" title="Delete this take">&times;</button>
         </div>
       </div>`;
@@ -3366,6 +3427,40 @@ function patchTakeRow(row, clip) {
   if (info) info.textContent = takeDuration(clip).toFixed(1) + "s";
   const auto = row.querySelector('[data-tact="trimauto"]');
   if (auto) auto.classList.toggle("on", !!f.trimAuto);
+}
+
+// Reordering by dragging a row's dots. The DOM node is moved during the drag
+// and the array is read back from it on release, so nothing re-renders under
+// the pointer and the pointer capture survives the whole gesture.
+function listReorder(container, rowSel, attr, apply) {
+  let drag = null;
+  container.addEventListener("pointerdown", (e) => {
+    const grip = e.target.closest(".rowgrip");
+    if (!grip) return;
+    const row = grip.closest(rowSel);
+    if (!row) return;
+    drag = { row };
+    row.classList.add("reordering");
+    grip.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  container.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    for (const r of container.querySelectorAll(rowSel)) {
+      if (r === drag.row) continue;
+      const b = r.getBoundingClientRect();
+      if (e.clientY < b.top + b.height / 2) { container.insertBefore(drag.row, r); return; }
+    }
+    container.appendChild(drag.row);
+  });
+  const end = () => {
+    if (!drag) return;
+    drag.row.classList.remove("reordering");
+    drag = null;
+    apply([...container.querySelectorAll(rowSel)].map(r => r.getAttribute(attr)));
+  };
+  container.addEventListener("pointerup", end);
+  container.addEventListener("pointercancel", end);
 }
 
 function clipFromEvent(e) {
@@ -3448,11 +3543,6 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
   if (act === "reverse") { fxOf(take).reverse = e.target.checked; fxTouched(take); markDirty(); updateTakeUi(); return; }
   if (act === "fxreset") { take.fx = newFx(); fxTouched(take); markDirty(); updateTakeUi(); return; }
   if (act === "towp") { takeToWaypoints(take); return; }
-  if (act === "up") {
-    const i = takes.indexOf(take);
-    if (i > 0) { takes.splice(i, 1); takes.splice(i - 1, 0, take); markDirty(); updateTakeUi(); }
-    return;
-  }
   if (act === "del") {
     const used = edits.reduce((n, ed) => n + ed.blocks.filter(b => b.takeId === take.id).length, 0);
     if (!confirm(`Delete "${take.name}"?` + (used ? `\n\nIt is used by ${used} block${used > 1 ? "s" : ""} in your edits, which will go too.` : ""))) return;
@@ -3463,6 +3553,19 @@ for (const _fxEl of [$("takeList"), $("props")]) _fxEl.addEventListener("click",
     pruneSources();
     tlSig = ""; markDirty(); updateTakeUi();
   }
+});
+
+listReorder($("takeList"), ".takewrap", "data-tid", (ids) => {
+  const next = ids.map(id => takes.find(t => t.id === id)).filter(Boolean);
+  if (next.length !== takes.length) { updateTakeUi(); return; }
+  takes.length = 0; takes.push(...next);
+  markDirty(); updateTakeUi();
+});
+listReorder(itemsEl, ".item", "data-id", (ids) => {
+  const next = ids.map(id => state.items.find(i => i.id === id)).filter(Boolean);
+  if (next.length !== state.items.length) { renderItems(); return; }
+  state.items = next;
+  markDirty(); renderItems();
 });
 
 // Dragging the name onto the timeline is the other way in, and the one that
@@ -3702,18 +3805,39 @@ let tlSel = null;                  // id of the selected block
 let tlSig = "";
 let tlDrag = null;
 
+// The strip always shows a bit more time than the edit uses, so the last
+// block has somewhere to be dragged to and a trim at the end is visible as a
+// gap rather than as nothing at all.
+function tlSpan(ed) {
+  return Math.max(6, Math.ceil(editDuration(ed) * 1.12) + 1);
+}
+
+function renderRuler(span) {
+  const step = span <= 12 ? 1 : span <= 30 ? 2 : span <= 70 ? 5 : span <= 150 ? 10 : 30;
+  let h = "";
+  for (let t = 0; t <= span; t += step) {
+    const big = (t / step) % 5 === 0;
+    const x = (100 * t / span).toFixed(4);
+    h += `<span class="tk ${big ? "big" : ""}" style="left:${x}%"></span>`;
+    if (big) h += `<span class="lb" style="left:${x}%">${fmtClock(t)}</span>`;
+  }
+  $("tlRuler").innerHTML = h;
+}
+
 function layoutTlBlocks() {
   const ed = currentEdit();
   if (!ed) return;
-  const dur = editDuration(ed) || 1;
+  const span = tlSpan(ed);
   for (const s of editLayout(ed)) {
     const el = $("tlBlocks").querySelector(`[data-bid="${s.b.id}"]`);
     if (!el) continue;
-    el.style.left = (100 * s.t0 / dur) + "%";
-    el.style.width = (100 * s.dur / dur) + "%";
+    el.style.left = (100 * s.t0 / span) + "%";
+    el.style.width = (100 * s.dur / span) + "%";
     const du = el.querySelector(".du");
     if (du) du.textContent = s.dur.toFixed(1) + "s";
   }
+  renderRuler(span);
+  tlPlayheadAt(clock.t, clock.dur);
 }
 
 function renderTimeline() {
@@ -3731,23 +3855,25 @@ function renderTimeline() {
   $("tlActs").style.display = onBlock ? "flex" : "none";
   if (sig === tlSig) return;
   tlSig = sig;
-  $("tlTrack").style.display = show ? "" : "none";
+  $("tlScale").style.display = show ? "" : "none";
   $("tlEmpty").style.display = show ? "none" : "";
   $("tlEmpty").textContent = !ed
     ? (edits.length ? "Pick an edit in the transport selector to lay it out here."
                     : "No edits yet. Press + Edit, then drag takes in or use the arrow on a take.")
     : `"${ed.name}" is empty. Drag a take onto this strip, or press \u2192 on a take in the list.`;
   if (!show) return;
-  const dur = editDuration(ed) || 1;
+  const span = tlSpan(ed);
   $("tlBlocks").innerHTML = l.map(s => `
     <div class="tlblk ${tlSel === s.b.id ? "sel" : ""}" data-bid="${s.b.id}"
-         style="left:${(100 * s.t0 / dur).toFixed(4)}%;width:${(100 * s.dur / dur).toFixed(4)}%"
-         title="${esc(s.take.name)} · drag to reorder, drag an edge to trim">
+         style="left:${(100 * s.t0 / span).toFixed(4)}%;width:${(100 * s.dur / span).toFixed(4)}%"
+         title="${esc(s.take.name)} · drag to move it in time, drag an edge to trim"
+         draggable="false">
       <div class="nm">${esc(s.take.name)}</div>
       <div class="du">${s.dur.toFixed(1)}s</div>
       <div class="edge l" data-edge="l"></div>
       <div class="edge r" data-edge="r"></div>
     </div>`).join("");
+  renderRuler(span);
   const sel = l.find(s => s.b.id === tlSel);
   $("tlHint").textContent = sel ? `${sel.take.name} · ${sel.dur.toFixed(1)}s of ${takeDuration(sel.take).toFixed(1)}s` : "";
 }
@@ -3756,9 +3882,14 @@ function tlPlayheadAt(t, dur) {
   clock.t = t; clock.dur = dur;
   const el = $("tlHead");
   if (!el) return;
-  const on = !!currentEdit() && dur > 0 && $("tlTrack").style.display !== "none";
-  el.style.display = on ? "" : "none";
-  if (on) el.style.left = (100 * clamp01(t / dur)).toFixed(3) + "%";
+  const ed = currentEdit();
+  const on = !!ed && $("tlScale").style.display !== "none";
+  // "" would fall back to the stylesheet, which hides it. The playhead was
+  // being drawn every frame straight into display:none.
+  el.style.display = on ? "block" : "none";
+  // Against the strip's own span, not the edit's length, or the line would sit
+  // at the wrong place over every block.
+  if (on) el.style.left = (100 * clamp01(t / tlSpan(ed))).toFixed(3) + "%";
 }
 
 // Named afterwards rather than in a modal. Rename is one button away, and a
@@ -3796,8 +3927,10 @@ const selBlock = () => {
 $("tlBlkDup").onclick = () => {
   const ed = currentEdit(), b = selBlock();
   if (!ed || !b) return;
-  const copy = { id: uuid(), takeId: b.takeId, tIn: b.tIn, tOut: b.tOut };
-  ed.blocks.splice(ed.blocks.indexOf(b) + 1, 0, copy);
+  const r = blockRange(b);
+  const copy = { id: uuid(), takeId: b.takeId, tIn: b.tIn, tOut: b.tOut,
+                 at: Math.max(0, b.at || 0) + (r ? r.dur : 0) };
+  ed.blocks.push(copy);
   tlSel = copy.id; tlSig = ""; markDirty(); updateTransport(); renderShotStrip();
 };
 $("tlBlkReset").onclick = () => {
@@ -3825,8 +3958,11 @@ $("tlBlocks").addEventListener("pointerdown", (e) => {
   tlSel = b.id; tlSig = "";
   const rect = $("tlTrack").getBoundingClientRect();
   tlDrag = { b, el, edge: e.target.dataset.edge || null, x0: e.clientX, rect,
-             perPx: (editDuration(ed) || 1) / Math.max(1, rect.width),
-             in0: r.in, out0: r.out, moved: false };
+             perPx: tlSpan(ed) / Math.max(1, rect.width),
+             at0: Math.max(0, b.at || 0), in0: r.in, out0: r.out, moved: false,
+             // Everything a drag can land on: the other blocks' edges and zero.
+             snaps: [0].concat(editLayout(ed).filter(s => s.b !== b)
+                                             .flatMap(s => [s.t0, s.t0 + s.dur])) };
   el.classList.add("dragging");
   el.setPointerCapture(e.pointerId);
   renderTimeline();
@@ -3842,29 +3978,53 @@ $("tlBlocks").addEventListener("pointermove", (e) => {
   if (Math.abs(dx) > 3) tlDrag.moved = true;
   const dt = dx * tlDrag.perPx;
   const full = takeDuration(take);
+  const snap = (t) => {
+    const tol = 8 * tlDrag.perPx;
+    let best = t, d = tol;
+    for (const s of tlDrag.snaps) if (Math.abs(s - t) < d) { d = Math.abs(s - t); best = s; }
+    return best;
+  };
   if (tlDrag.edge === "l") {
-    tlDrag.b.tIn = clampTo(tlDrag.in0 + dt, 0, Math.max(0, tlDrag.out0 - 0.1));
+    // Trimming the head advances the in point and moves the block with it, so
+    // the frames that stay keep the position on the timeline they already had.
+    const lo = Math.max(-tlDrag.at0, -tlDrag.in0);
+    const d = clampTo(dt, lo, Math.max(0, tlDrag.out0 - tlDrag.in0 - 0.1));
+    tlDrag.b.at = snap(tlDrag.at0 + d);
+    tlDrag.b.tIn = tlDrag.in0 + (tlDrag.b.at - tlDrag.at0);
     layoutTlBlocks();
   } else if (tlDrag.edge === "r") {
-    tlDrag.b.tOut = clampTo(tlDrag.out0 + dt, tlDrag.in0 + 0.1, full);
+    const end = snap(tlDrag.at0 + (tlDrag.out0 - tlDrag.in0) + dt);
+    tlDrag.b.tOut = clampTo(tlDrag.in0 + (end - tlDrag.at0), tlDrag.in0 + 0.1, full);
     layoutTlBlocks();
   } else if (tlDrag.moved) {
-    const l = editLayout(ed), dur = editDuration(ed) || 1;
-    const tAt = ((e.clientX - tlDrag.rect.left) / Math.max(1, tlDrag.rect.width)) * dur;
-    let want = l.length ? l[l.length - 1].b : null;
-    for (const s of l) if (tAt < s.t0 + s.dur / 2) { want = s.b; break; }
-    const cur = ed.blocks.indexOf(tlDrag.b), target = want ? ed.blocks.indexOf(want) : -1;
-    if (target >= 0 && target !== cur) {
-      ed.blocks.splice(cur, 1);
-      ed.blocks.splice(target, 0, tlDrag.b);
-      layoutTlBlocks();
-    }
+    // Moving in time, not reordering. Order is where things are.
+    const want = Math.max(0, tlDrag.at0 + dt);
+    const dur = (tlDrag.out0 - tlDrag.in0);
+    const a = snap(want), b2 = snap(want + dur) - dur;
+    tlDrag.b.at = Math.max(0, Math.abs(a - want) <= Math.abs(b2 - want) ? a : b2);
+    layoutTlBlocks();
   }
 });
+
+// One track, so two blocks cannot be in the same place. Dropping one onto
+// another slides it to the nearer free side rather than hiding it, which is
+// what overlapping silently did.
+function resolveOverlap(ed, b) {
+  const r = blockRange(b);
+  if (!r) return;
+  for (let guard = 0; guard < 8; guard++) {
+    const at = Math.max(0, b.at || 0), end = at + r.dur;
+    const hit = editLayout(ed).find(s => s.b !== b && s.t0 < end - 1e-6 && s.t0 + s.dur > at + 1e-6);
+    if (!hit) return;
+    const left = hit.t0 - r.dur, right = hit.t0 + hit.dur;
+    b.at = (at - Math.max(0, left)) <= (right - at) && left >= 0 ? left : right;
+  }
+}
 
 function endTlDrag() {
   if (!tlDrag) return;
   const touched = tlDrag.moved || !!tlDrag.edge;
+  if (touched) resolveOverlap(currentEdit(), tlDrag.b);
   tlDrag.el.classList.remove("dragging");
   tlDrag = null;
   tlSig = "";
@@ -3891,11 +4051,9 @@ $("tlTrack").addEventListener("drop", (e) => {
   const take = data.startsWith("take:") ? takeById(data.slice(5)) : null;
   if (!take) return;
   const rect = $("tlTrack").getBoundingClientRect();
-  const l = editLayout(ed), dur = editDuration(ed) || 1;
-  const tAt = ((e.clientX - rect.left) / Math.max(1, rect.width)) * dur;
-  let at = ed.blocks.length;
-  for (const s of l) if (tAt < s.t0 + s.dur / 2) { at = ed.blocks.indexOf(s.b); break; }
-  const b = addBlock(ed, take, at);
+  const tAt = ((e.clientX - rect.left) / Math.max(1, rect.width)) * tlSpan(ed);
+  const b = addBlock(ed, take, Math.max(0, tAt));
+  resolveOverlap(ed, b);
   tlSel = b.id; tlSig = "";
   markDirty(); updateTransport(); renderShotStrip();
   setStatus(`"${take.name}" added to "${ed.name}".`);

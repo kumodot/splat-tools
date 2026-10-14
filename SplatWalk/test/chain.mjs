@@ -462,20 +462,38 @@ console.log("\n13e. edits: blocks of takes on one timeline");
   const before = sampleEdit(ed, dA - 1 / fps), after = sampleEdit(ed, dA + 1 / fps);
   ok("a hard cut, not a blend", before.pos[0] > 1 && after.pos[0] < 1e-6, `${before.pos[0]} / ${after.pos[0]}`);
 
-  // Trimming a block shortens the edit and shifts everything after it. The
-  // take is untouched, which is the whole point of the split.
+  // Trimming a block shortens IT and leaves a hole. Nothing slides, because a
+  // track that closes its own gaps cannot show you a trim at all: cut a second
+  // off the only block and it would still fill the strip.
   l[0].b.tIn = 0.5; l[0].b.tOut = 1.5;
   ok("trim changes the block", near(editLayout(ed)[0].dur, 1, 1e-6), editLayout(ed)[0].dur);
-  ok("and the edit with it", near(editDuration(ed), 1 + dB, 1e-6));
   ok("but never the take", near(takeDuration(A), dA, 1e-9));
+  ok("and nothing slides", near(editLayout(ed)[1].t0, dA, 1e-9), editLayout(ed)[1].t0);
+  ok("so the edit keeps its length", near(editDuration(ed), dA + dB, 1e-6));
   ok("the block plays from its in point",
      dist(sampleEdit(ed, 0).pos, sampleTake(A, 0.5).pos) < 1e-9);
-  ok("the next block follows the trim",
-     dist(sampleEdit(ed, 1 + dB / 2).pos, sampleTake(B, dB / 2).pos) < 1e-9);
 
-  // Duration is a property of the TAKE, so changing it reflows every edit.
+  // The hole between 1.0 and 2.0: hold the last frame that was under the
+  // playhead rather than cutting to nothing.
+  ok("a hole holds the frame before it",
+     dist(sampleEdit(ed, 1.5).pos, sampleTake(A, 1.5).pos) < 1e-9);
+  ok("and holds it right up to the next block",
+     dist(sampleEdit(ed, dA - 1e-4).pos, sampleTake(A, 1.5).pos) < 1e-9);
+  ok("the next block still starts on time",
+     dist(sampleEdit(ed, dA + dB / 2).pos, sampleTake(B, dB / 2).pos) < 1e-9);
+
+  // Before the first block there is nothing behind it, so it stands in.
+  l[0].b.at = 1;
+  ok("a gap at the head shows the first frame",
+     dist(sampleEdit(ed, 0).pos, sampleTake(A, 0.5).pos) < 1e-9);
+  l[0].b.at = 0;
+
+  // Duration is a property of the TAKE, so changing it changes the block's
+  // length. Where the block sits is the block's own business and stays put.
+  const was = editLayout(ed)[1].t0;
   A.fx.speed = 2; A._rev++;
-  ok("a take's speed reflows the edit", near(editLayout(ed)[1].t0, editLayout(ed)[0].dur, 1e-9));
+  ok("a take's speed resizes its block", editLayout(ed)[0].dur < 1);
+  ok("without moving anything", near(editLayout(ed)[1].t0, was, 1e-9));
 
   // The same take twice, showing different stretches, with nothing duplicated.
   const ed2 = newEdit("Twice");
@@ -485,7 +503,8 @@ console.log("\n13e. edits: blocks of takes on one timeline");
   ok("each instance keeps its own trim",
      near(editLayout(ed2)[0].dur, 1, 1e-6) && near(editLayout(ed2)[1].dur, 1, 1e-6));
   ok("and they play different stretches",
-     dist(sampleEdit(ed2, 0).pos, sampleEdit(ed2, 1.0001).pos) > 0.5);
+     dist(sampleEdit(ed2, 0).pos, sampleEdit(ed2, editLayout(ed2)[1].t0 + 0.5).pos) > 0.5);
+  ok("the second one starts after the first", editLayout(ed2)[1].t0 >= dB - 1e-9);
 
   // A block whose take went away is skipped, not a crash and not a hole.
   takes.splice(takes.indexOf(B), 1);
