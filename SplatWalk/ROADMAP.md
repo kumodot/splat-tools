@@ -27,17 +27,57 @@ done. What is left of the original layout study:
 
 The zone, the selector and the transport exist. The body is still a placeholder.
 
-- [ ] **Take blocks on a time axis.** Lay the queued takes out, reorder them,
-      trim their edges. Hard cuts only, no transitions.
+This is the next block of work. Agreed with Marcelo over three rounds; the
+design below is settled, only the code is missing.
+
+- [ ] **Edits.** An edit is an ordered list of blocks, each block an instance
+      of a take. Create one, name it, drag takes into it, reorder, duplicate,
+      delete. Hard cuts only, no transitions, and blocks are always butted
+      together so there is never a hole to define the behaviour of.
+- [ ] **Take blocks on a time axis.** The timeline body shows the blocks of
+      the selected edit and nothing else. The take list becomes the bin.
 - [ ] **Graph editor as a mode of the same panel.** Per-channel curves (X, Y,
       Z, yaw, pitch, fov) with the surviving points as handles. This is the 2D
       half of the point editing that already works in the viewport, and it
       lives here rather than in a floating window because it wants the same
       horizontal time axis the timeline does.
-- [ ] **Edits.** Assembled sequences of takes, appearing in the transport
-      selector alongside the waypoint shot and the individual takes.
 - [ ] **Scrub the waypoint shot.** The transport scrubs a take today; a shot
       is still play-only.
+
+**The split, which is the decision that makes the rest easy.** Marcelo's,
+and better than the copy-or-link question I put to him:
+
+> the duration stays a property of the take, and in the edit we get trim,
+> duplicate and so on
+
+So the take owns *how the move behaves*: Detail, Speed, Ease, Timing,
+Handheld, Reverse, cuts. That gives it a definite duration. The block owns
+*how it is arranged*: order, in/out on this block, duplicate, delete. A block
+is therefore linked to its take, not a copy of it, and the take is the single
+source of truth.
+
+Trim exists at both levels without colliding because they answer different
+questions. The take's Trim says **which part of the recording is the take**,
+which is what auto-trim already does to the parked head and tail. A block's
+in/out says **which part of the take plays here**, and touches neither the
+take nor the other blocks of it. Duplicating becomes genuinely useful: the
+same take twice, showing different stretches, with no data duplicated.
+
+The price, accepted knowingly: changing a take's Speed changes the length of
+every block of it in every edit, and those edits reflow. Butted blocks make
+the reflow silent. Two speeds of one move means duplicating the take in the
+bin, which the list already does.
+
+**Render follows the selection.** Marcelo's, and it deletes more than it
+adds: the render section gets the same selector the timeline and transport
+use, and Bake exports whatever is selected. A take exports as that take, an
+edit exports as the merged sequence.
+
+What that removes: the per-take `enabled` checkboxes, the "Join: one file per
+take" dropdown, and the estimate that sums the queue. Duration and frame
+count become simply those of the selection. Batch rendering, the one thing
+the checkboxes did that a selector does not, comes back as an `All takes`
+entry in the same dropdown. One mechanism instead of two.
 
 ## One path type (half built, v0.5.9)
 
